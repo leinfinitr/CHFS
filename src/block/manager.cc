@@ -76,7 +76,7 @@ auto BlockManager::write_block(block_id_t block_id, const u8 *data)
     -> ChfsNullResult {
   
   // TODO: Implement this function.
-  UNIMPLEMENTED();
+  memcpy(this->block_data + block_id * this->block_sz, data, this->block_sz);
 
   return KNullOk;
 }
@@ -86,7 +86,7 @@ auto BlockManager::write_partial_block(block_id_t block_id, const u8 *data,
     -> ChfsNullResult {
   
   // TODO: Implement this function.
-  UNIMPLEMENTED();
+  memcpy(this->block_data + block_id * this->block_sz + offset, data, len);
 
   return KNullOk;
 }
@@ -94,7 +94,7 @@ auto BlockManager::write_partial_block(block_id_t block_id, const u8 *data,
 auto BlockManager::read_block(block_id_t block_id, u8 *data) -> ChfsNullResult {
 
   // TODO: Implement this function.
-  UNIMPLEMENTED();
+  memcpy(data, this->block_data + block_id * this->block_sz, this->block_sz);
 
   return KNullOk;
 }
@@ -102,7 +102,7 @@ auto BlockManager::read_block(block_id_t block_id, u8 *data) -> ChfsNullResult {
 auto BlockManager::zero_block(block_id_t block_id) -> ChfsNullResult {
   
   // TODO: Implement this function.
-  UNIMPLEMENTED();
+  memset(this->block_data + block_id * this->block_sz, 0, this->block_sz);
 
   return KNullOk;
 }
@@ -128,7 +128,7 @@ auto BlockIterator::create(BlockManager *bm, block_id_t start_block_id,
 
   std::vector<u8> buffer(bm->block_sz);
 
-  auto res = bm->read_block(iter.cur_block_off / bm->block_sz + start_block_id,
+  auto res = bm->read_block(iter.cur_block_off % bm->block_sz + start_block_id,
                             buffer.data());
   if (res.is_ok()) {
     iter.buffer = std::move(buffer);

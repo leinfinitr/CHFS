@@ -32,10 +32,10 @@ class BlockManager {
 protected:
   const usize block_sz = 4096;
 
-  std::string file_name_;
-  int fd;
-  u8 *block_data;
-  usize block_cnt;
+  std::string file_name_; // the file name of the block device
+  int fd; // the file descriptor of the block device
+  u8 *block_data; // the block data pointer
+  usize block_cnt; // the number of blocks in the device
   bool in_memory; // whether we use in-memory to emulate the block manager
 
 public:
