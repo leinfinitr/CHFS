@@ -122,17 +122,24 @@ MetadataServer::MetadataServer(std::string const &address, u16 port,
 // {Your code here}
 auto MetadataServer::mknode(u8 type, inode_id_t parent, const std::string &name)
     -> inode_id_t {
-  // TODO: Implement this function.
-  UNIMPLEMENTED();
+  // allocate inode
+  auto allo_res = operation_->mk_helper(parent, name.c_str(), InodeType(type));
+  if (allo_res.is_err()) {
+    return 0;
+  }
+  auto inode = allo_res.unwrap();
+  // std::cout << "inode: " << inode << std::endl;
 
-  return 0;
+  return inode;
 }
 
 // {Your code here}
 auto MetadataServer::unlink(inode_id_t parent, const std::string &name)
     -> bool {
-  // TODO: Implement this function.
-  UNIMPLEMENTED();
+  auto res = operation_->unlink(parent, name.c_str());
+  if (res.is_ok()) {
+    return true;
+  }
 
   return false;
 }
@@ -140,24 +147,91 @@ auto MetadataServer::unlink(inode_id_t parent, const std::string &name)
 // {Your code here}
 auto MetadataServer::lookup(inode_id_t parent, const std::string &name)
     -> inode_id_t {
-  // TODO: Implement this function.
-  UNIMPLEMENTED();
+  auto res = operation_->lookup(parent, name.c_str());
+  if (res.is_ok()) {
+    return res.unwrap();
+  }
 
   return 0;
 }
 
 // {Your code here}
 auto MetadataServer::get_block_map(inode_id_t id) -> std::vector<BlockInfo> {
-  // TODO: Implement this function.
-  UNIMPLEMENTED();
+  // Read the inode
+  auto inode_block_id = operation_->inode_manager_->get(id).unwrap();
+  chfs::u8 *data = new chfs::u8[operation_->block_manager_->block_size()];
+  auto read_res = operation_->block_manager_->read_block(inode_block_id, data);
+  if (read_res.is_err()) {
+    return {};
+  }
+  auto inode = reinterpret_cast<Inode *>(data);
+  
+  // Get block info
+  std::vector<BlockInfo> res;
+  for(auto i = 0; i < inode->get_nblocks(); i++) {
+    // 跳过 block_id 为 0 的 block
+    if(inode->blocks[i] == 0){
+      continue;
+    }
+    block_attr attr = inode->block_attrs[i];
+    res.push_back(BlockInfo{inode->blocks[i], attr.mac_id, attr.version});
+  }
 
-  return {};
+  delete[] data;
+
+  return res;
 }
 
 // {Your code here}
 auto MetadataServer::allocate_block(inode_id_t id) -> BlockInfo {
-  // TODO: Implement this function.
-  UNIMPLEMENTED();
+  // Read the inode
+  auto inode_block_id = operation_->inode_manager_->get(id).unwrap();
+  u8 *data = new chfs::u8[operation_->block_manager_->block_size()];
+  auto read_res = operation_->block_manager_->read_block(inode_block_id, data);
+  if (read_res.is_err()) {
+    return {};
+  }
+  auto inode = reinterpret_cast<Inode *>(data);
+  
+  // Allocate block
+  // 遍历所有的 data server，直至 allocate 成功
+  bool success = false;
+  auto res = BlockInfo{0, 0, 0};
+  for(auto client : clients_){
+    auto cli = client.second;
+    auto allo_res = cli->call("alloc_block");
+    auto [allo_block_id, version] = allo_res.unwrap()->as<std::pair<block_id_t, version_t>>();
+    if(allo_block_id != 0){
+      // 计算 block_id 在 inode 中的位置
+      auto block_id_pos = inode->get_size() / operation_->block_manager_->block_size();
+      if(inode->get_size() % operation_->block_manager_->block_size() != 0){
+        block_id_pos += 1;
+      }
+      if(block_id_pos >= inode->get_nblocks()){
+        // inode 中的 block 不够用了，需要分配新的 block
+        std::cout << "The inode is full, need to allocate new block." << std::endl;
+        return {};
+      }
+
+      // 更新 inode block
+      inode->blocks[block_id_pos] = allo_block_id;
+      inode->block_attrs[block_id_pos] = block_attr{client.first, version};
+      auto write_res = operation_->block_manager_->write_block(inode_block_id, data);
+      if(write_res.is_err()){
+        return {};
+      }
+      success = true;
+      res = BlockInfo{allo_block_id, client.first, version};
+      break;
+    }
+  }
+
+  // free data
+  delete[] data;
+
+  if(success){
+    return res;
+  }
 
   return {};
 }
@@ -165,28 +239,67 @@ auto MetadataServer::allocate_block(inode_id_t id) -> BlockInfo {
 // {Your code here}
 auto MetadataServer::free_block(inode_id_t id, block_id_t block_id,
                                 mac_id_t machine_id) -> bool {
-  // TODO: Implement this function.
-  UNIMPLEMENTED();
+  // Read the inode
+  auto inode_block_id = operation_->inode_manager_->get(id).unwrap();
+  chfs::u8 *data = new chfs::u8[operation_->block_manager_->block_size()];
+  auto read_res = operation_->block_manager_->read_block(inode_block_id, data);
+  if (read_res.is_err()) {
+    return {};
+  }
+  auto inode = reinterpret_cast<Inode *>(data);
 
-  return false;
+  // free block
+  bool success = false;
+  auto cli = clients_.find(machine_id)->second;
+  auto res = cli->call("free_block", block_id);
+  if(res.unwrap()->as<bool>()){
+    // 更新 inode
+    for(auto i = 1; i < inode->get_nblocks(); i++){
+      if(inode->blocks[i] == block_id){
+        inode->blocks[i] = 0;
+        inode->block_attrs[i] = block_attr{0, 0};
+        break;
+      }
+    }
+    auto write_res = operation_->block_manager_->write_block(block_id, data);
+    if(write_res.is_err()){
+      return {};
+    }
+    success = true;
+  }
+
+  delete[] data;
+
+  return success;
 }
 
 // {Your code here}
 auto MetadataServer::readdir(inode_id_t node)
     -> std::vector<std::pair<std::string, inode_id_t>> {
-  // TODO: Implement this function.
-  UNIMPLEMENTED();
+  std::list<DirectoryEntry> entries;
+  auto read_res = read_directory(operation_.get(), node, entries);
+  if (read_res.is_err()) {
+    return {};
+  }
 
-  return {};
+  std::vector<std::pair<std::string, inode_id_t>> res;
+  for (auto entry : entries) {
+    res.push_back(std::make_pair(entry.name, entry.id));
+  }
+  return res;
 }
 
 // {Your code here}
 auto MetadataServer::get_type_attr(inode_id_t id)
     -> std::tuple<u64, u64, u64, u64, u8> {
-  // TODO: Implement this function.
-  UNIMPLEMENTED();
+  auto res = operation_->get_type_attr(id);
+  if (res.is_err()) {
+    return {};
+  }
 
-  return {};
+  std::pair<InodeType, FileAttr> attr = res.unwrap();
+  return std::make_tuple(attr.second.size, attr.second.atime, attr.second.mtime,
+                         attr.second.ctime, static_cast<u8>(attr.first));
 }
 
 auto MetadataServer::reg_server(const std::string &address, u16 port,

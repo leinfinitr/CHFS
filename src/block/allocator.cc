@@ -102,6 +102,7 @@ auto BlockAllocator::allocate() -> ChfsResult<block_id_t> {
 
     if (i == this->bitmap_block_cnt - 1) {
       // If current block is the last block of the bitmap.
+      // 由于最后一个 block 只有一部分存储了 bitmap，所以需要 设置 bound
 
       // TODO: Find the first free bit of current bitmap block
       // and store it in `res`.

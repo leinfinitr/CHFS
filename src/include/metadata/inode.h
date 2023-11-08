@@ -33,6 +33,11 @@ enum class InodeType : u32 {
   Directory = 2,
 };
 
+struct block_attr{
+  mac_id_t mac_id;
+  version_t version;
+};
+
 class Inode;
 class FileOperation;
 
@@ -90,6 +95,7 @@ class Inode {
   // which is dynamically calculated based on the block size
 public:
   [[maybe_unused]] block_id_t blocks[0];
+  [[maybe_unused]] block_attr block_attrs[0];
 
 public:
   /**
