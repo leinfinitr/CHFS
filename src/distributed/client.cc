@@ -259,7 +259,7 @@ namespace chfs
       // 分配新的 block
       for (int i = 0; i < block_num; i++)
       {
-        auto call_res = metadata_server_->call("allocate_block", id);
+        auto call_res = metadata_server_->call("alloc_block", id);
         auto res = call_res.unwrap()->as<BlockInfo>();
 
         // 得到新分配的 block 的信息

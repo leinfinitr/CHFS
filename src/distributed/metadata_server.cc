@@ -145,6 +145,7 @@ namespace chfs
   {
     // allocate inode
     mknode_mutex.lock();
+    std::cout << "mk_helper" << std::endl;
     auto allo_res = operation_->mk_helper(parent, name.c_str(), InodeType(type));
     mknode_mutex.unlock();
     if (allo_res.is_err())
@@ -152,7 +153,7 @@ namespace chfs
       return 0;
     }
     auto inode = allo_res.unwrap();
-    std::cout << "inode: " << inode << std::endl;
+    // std::cout << "inode: " << inode << std::endl;
 
     // write log
     if(is_log_enabled_) {
@@ -311,13 +312,14 @@ namespace chfs
     if (res.unwrap()->as<bool>())
     {
       // 更新 inode
-      for (auto i = 1; i < inode->get_nblocks(); i++)
+      for (auto i = 0; i < inode->get_nblocks(); i++)
       {
         if (inode->blocks[i] == block_id)
         {
           inode->blocks[i] = 0;
           inode->block_attrs[i] = block_attr{0, 0};
           inode->inner_attr.size -= operation_->block_manager_->block_size();
+          std::cout << "free block: " << block_id << std::endl;
           break;
         }
       }
@@ -327,6 +329,7 @@ namespace chfs
         return {};
       }
       success = true;
+      std::cout << "free block success" << std::endl;
     }
 
     delete[] data;

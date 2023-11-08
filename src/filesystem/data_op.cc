@@ -16,6 +16,7 @@ auto FileOperation::alloc_inode(InodeType type) -> ChfsResult<inode_id_t> {
   //    and write the block back to block manager.
   auto block_id = this->block_allocator_->allocate();
   if (block_id.is_err()) {
+    std::cout << "alloc_inode error" << std::endl;
     return ChfsResult<inode_id_t>(block_id.unwrap_error());
   }
   inode_res = this->inode_manager_->allocate_inode(type, block_id.unwrap());
@@ -207,8 +208,10 @@ auto FileOperation::write_file(inode_id_t id, const std::vector<u8> &content)
       }
 
       // TODO: Write to current block.
+      std::cout << "Write 1" << std::endl;
       auto write_res = this->block_manager_->write_block(block_id, buffer.data());
       if (write_res.is_err()) {
+        std::cout << "Error 1" << std::endl;
         error_code = write_res.unwrap_error();
         goto err_ret;
       }
@@ -222,16 +225,20 @@ auto FileOperation::write_file(inode_id_t id, const std::vector<u8> &content)
   {
     inode_p->inner_attr.set_all_time(time(0));
 
+    std::cout << "Write 2" << std::endl;
     auto write_res =
         this->block_manager_->write_block(inode_res.unwrap(), inode.data());
     if (write_res.is_err()) {
+      std::cout << "Error 2" << std::endl;
       error_code = write_res.unwrap_error();
       goto err_ret;
     }
     if (indirect_block.size() != 0) {
+      std::cout << "Write 3" << std::endl;
       write_res =
           inode_p->write_indirect_block(this->block_manager_, indirect_block);
       if (write_res.is_err()) {
+        std::cout << "Error 3" << std::endl;
         error_code = write_res.unwrap_error();
         goto err_ret;
       }
@@ -241,7 +248,7 @@ auto FileOperation::write_file(inode_id_t id, const std::vector<u8> &content)
   return KNullOk;
 
 err_ret:
-  // std::cerr << "write file return error: " << (int)error_code << std::endl;
+  std::cout << "write file return error: " << (int)error_code << std::endl;
   return ChfsNullResult(error_code);
 }
 

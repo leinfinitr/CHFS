@@ -121,5 +121,12 @@ namespace chfs
         bm_->sync(block_id);
       }
     }
+
+    // 恢复 log_map 中的 log
+    for (auto &log : bm_->log_map)
+    {
+      memcpy(bm_->unsafe_get_block_ptr() + log.first * bm_->block_size(), log.second.data(), DiskBlockSize);
+      bm_->sync(log.first);
+    }
   }
 }; // namespace chfs

@@ -135,13 +135,32 @@ auto FileOperation::mk_helper(inode_id_t id, const char *name, InodeType type)
   if(lookup(id, name).is_ok()) {
     return ChfsResult<inode_id_t>(ErrorType::AlreadyExist);
   }
-  auto inode = alloc_inode(type).unwrap();
-  auto res = read_file(id).unwrap();
+
+  std::cout << "alloc_inode" << std::endl;
+  auto allo_res = alloc_inode(type);
+  if (allo_res.is_err()) {
+    return ChfsResult<inode_id_t>(ErrorType::OUT_OF_RESOURCE);
+  }
+  auto inode = allo_res.unwrap();
+
+  std::cout << "read_file" << std::endl;
+  auto read_res = read_file(id);
+  if(read_res.is_err()) {
+    return ChfsResult<inode_id_t>(ErrorType::INVALID);
+  }
+  auto res = read_res.unwrap();
+
   auto data = std::string(res.begin(), res.end());
   data = append_to_directory(data, name, inode);
   std::vector<u8> vec(data.begin(), data.end());
-  write_file(id, vec);
+  
+  std::cout << "write_file" << std::endl;
+  auto write_res = write_file(id, vec);
+  if (write_res.is_err()) {
+    return ChfsResult<inode_id_t>(ErrorType::OUT_OF_RESOURCE);
+  }
 
+  std::cout << "mk_helper success, inode = " << inode << std::endl;
   return ChfsResult<inode_id_t>(inode);
 }
 
