@@ -16,6 +16,7 @@
 #include "common/config.h"
 #include "common/macros.h"
 #include "common/result.h"
+#include "librpc/client.h"
 
 namespace chfs {
 // TODO
@@ -28,6 +29,7 @@ class BlockIterator;
  */
 class BlockManager {
   friend class BlockIterator;
+  friend class CommitLog;
 
 protected:
   const usize block_sz = 4096;
@@ -39,6 +41,10 @@ protected:
   bool in_memory; // whether we use in-memory to emulate the block manager
   bool maybe_failed;
   usize write_fail_cnt;
+  bool is_log_enabled;
+  usize log_block_cnt;
+  usize log_block_id;
+  std::map<block_id_t, std::vector<u8>> log_map;
 
 public:
   /**

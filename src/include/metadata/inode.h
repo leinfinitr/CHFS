@@ -83,6 +83,7 @@ class Inode {
   friend class InodeIterator;
   friend class InodeManager;
   friend class FileOperation;
+  friend class MetadataServer;
 
   InodeType type;
   FileAttr inner_attr;

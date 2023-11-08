@@ -62,6 +62,7 @@ public:
   /**
    * {Append anything if you need}
    */
+  txn_id_t last_txn_id_;
 };
 
 } // namespace chfs
