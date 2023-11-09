@@ -143,26 +143,31 @@ namespace chfs
   auto MetadataServer::mknode(u8 type, inode_id_t parent, const std::string &name)
       -> inode_id_t
   {
+    std::lock_guard<std::mutex> lock(mknode_mutex);
     // allocate inode
-    mknode_mutex.lock();
     std::cout << "mk_helper" << std::endl;
     auto allo_res = operation_->mk_helper(parent, name.c_str(), InodeType(type));
-    mknode_mutex.unlock();
+
+    // write log
+    if(is_log_enabled_) {
+      std::vector<std::shared_ptr<BlockOperation>> ops;
+      for(auto log : operation_->block_manager_->log_buffer) {
+        auto op = std::make_shared<BlockOperation>(log.first, log.second);
+        ops.push_back(op);
+      }
+      commit_log->append_log(operation_->block_manager_->last_txn_id, ops);
+      operation_->block_manager_->log_buffer.clear();
+      operation_->block_manager_->last_txn_id += 1;
+
+      std::cout << "commit_log" << std::endl;
+    }
+
     if (allo_res.is_err())
     {
       return 0;
     }
     auto inode = allo_res.unwrap();
-    // std::cout << "inode: " << inode << std::endl;
-
-    // write log
-    if(is_log_enabled_) {
-      std::vector<std::shared_ptr<BlockOperation>> ops;
-      auto inode_block_id = operation_->inode_manager_->get(inode).unwrap();
-      auto inode_block = operation_->block_manager_->unsafe_get_block_ptr() + inode_block_id * operation_->block_manager_->block_size();
-      ops.push_back(std::make_shared<BlockOperation>(inode_block_id, std::vector<u8>(inode_block, inode_block + operation_->block_manager_->block_size())));
-      commit_log->append_log(commit_log->last_txn_id_ + 1, ops);
-    }
+    std::cout << "inode: " << inode << std::endl;
 
     return inode;
   }
@@ -171,15 +176,29 @@ namespace chfs
   auto MetadataServer::unlink(inode_id_t parent, const std::string &name)
       -> bool
   {
-    mknode_mutex.lock();
+    std::lock_guard<std::mutex> lock(mknode_mutex);
     auto res = operation_->unlink(parent, name.c_str());
-    mknode_mutex.unlock();
-    if (res.is_ok())
-    {
-      return true;
+
+    // write log
+    if(is_log_enabled_) {
+      std::vector<std::shared_ptr<BlockOperation>> ops;
+      for(auto log : operation_->block_manager_->log_buffer) {
+        auto op = std::make_shared<BlockOperation>(log.first, log.second);
+        ops.push_back(op);
+      }
+      commit_log->append_log(operation_->block_manager_->last_txn_id, ops);
+      operation_->block_manager_->log_buffer.clear();
+      operation_->block_manager_->last_txn_id += 1;
+
+      std::cout << "commit_log" << std::endl;
     }
 
-    return false;
+    if (res.is_err())
+    {
+      return false;
+    }
+
+    return true;
   }
 
   // {Your code here}

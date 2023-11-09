@@ -117,19 +117,30 @@ namespace chfs
       return;
     }
     // 保留最后 1024 个 block 用于 log
-    this->log_block_cnt = 1024;
-    this->log_block_id = this->block_cnt - this->log_block_cnt;
+    this->log_block_num = 1024;
+    this->log_block_start = this->block_cnt - this->log_block_cnt;
+    this->log_block_cnt = 0;
+    this->last_txn_id = 0;
   }
 
   auto BlockManager::write_block(block_id_t block_id, const u8 *data)
       -> ChfsNullResult
   {
-    // 将更改写入 log
-    if (is_log_enabled && block_id < this->log_block_id)
+    // 写入 log
+    if (is_log_enabled)
     {
+      if(block_id >= log_block_start){
+        std::cout << "Block id is larger than log block start id" << std::endl;
+        return ErrorType::INVALID;
+      }
+
       std::vector<u8> write_data(this->block_sz);
       memcpy(write_data.data(), data, this->block_sz);
-      this->log_map[block_id] = write_data;
+      this->log_buffer[block_id] = write_data;
+
+      std::cout << "Write log" << std::endl;
+      std::cout << "block_id: " << block_id << std::endl;
+      std::cout << "log entry num: " << this->log_buffer.size() << std::endl;
     }
 
     if (this->maybe_failed && block_id < this->block_cnt)
@@ -153,22 +164,21 @@ namespace chfs
                                          usize offset, usize len)
       -> ChfsNullResult
   {
-    // 将更改写入 log
-    if (is_log_enabled && block_id < this->log_block_id)
+    if (is_log_enabled)
     {
-      std::vector<u8> write_data(this->block_sz);
-      memcpy(write_data.data(), this->block_data + block_id * this->block_sz + offset, this->block_sz);
-      memcpy(write_data.data() + offset, data, len);
-      this->log_map[block_id] = write_data;
-    }
-
-    if (this->maybe_failed && block_id < this->block_cnt)
-    {
-      if (this->write_fail_cnt >= 3)
-      {
-        this->write_fail_cnt = 0;
+      if(block_id >= log_block_start){
+        std::cout << "Block id is larger than log block start id" << std::endl;
         return ErrorType::INVALID;
       }
+
+      std::vector<u8> write_data(this->block_sz);
+      read_block(block_id, write_data.data());
+      memcpy(write_data.data() + offset, data, len);
+      this->log_buffer[block_id] = write_data;
+
+      std::cout << "Write log" << std::endl;
+      std::cout << "block_id: " << block_id << std::endl;
+      std::cout << "log entry num: " << this->log_buffer.size() << std::endl; 
     }
 
     memcpy(this->block_data + block_id * this->block_sz + offset, data, len);

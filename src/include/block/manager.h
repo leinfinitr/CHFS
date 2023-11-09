@@ -18,6 +18,9 @@
 #include "common/result.h"
 #include "librpc/client.h"
 
+// 在此处不能 inclued distributed/commit_log.h，因为会造成循环依赖？
+// 反正会编译不通过
+
 namespace chfs {
 // TODO
 
@@ -30,6 +33,7 @@ class BlockIterator;
 class BlockManager {
   friend class BlockIterator;
   friend class CommitLog;
+  friend class MetadataServer;
 
 protected:
   const usize block_sz = 4096;
@@ -42,9 +46,11 @@ protected:
   bool maybe_failed;
   usize write_fail_cnt;
   bool is_log_enabled;
-  usize log_block_cnt;
-  usize log_block_id;
-  std::map<block_id_t, std::vector<u8>> log_map;
+  usize log_block_num;  // the number of log blocks
+  usize log_block_start; // the start block id of the log block
+  usize log_block_cnt; // the number of writen log blocks
+  txn_id_t last_txn_id; // the last txn id
+  std::map<block_id_t, std::vector<u8>> log_buffer; // the log buffer
 
 public:
   /**

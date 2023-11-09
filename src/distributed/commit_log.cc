@@ -17,6 +17,8 @@ namespace chfs
                        bool is_checkpoint_enabled)
       : is_checkpoint_enabled_(is_checkpoint_enabled), bm_(bm)
   {
+    log_entry_num = 0;
+    last_txn_id_ = 0;
   }
 
   CommitLog::~CommitLog() {}
@@ -24,7 +26,7 @@ namespace chfs
   // {Your code here}
   auto CommitLog::get_log_entry_num() -> usize
   {
-    return bm_->log_map.size();
+    return log_entry_num;
   }
 
   // {Your code here}
@@ -55,16 +57,25 @@ namespace chfs
     }
 
     // 将 log 写入 log block
+    std::cout << "log size: " << log_size << std::endl;
+    std::cout << "bm_->log_block_start: " << bm_->log_block_start << std::endl;
+    std::cout << "bm_->block_ptr: " << bm_->unsafe_get_block_ptr() << std::endl;
+    std::cout << "ops :" << ops.size() << std::endl;
+    for(auto &op : ops)
+    {
+      std::cout << "op->block_id_: " << op->block_id_ << std::endl;
+      std::cout << "op->new_block_state_.data(): " << op->new_block_state_.data() << std::endl;
+    }
+    std::cout << "log_data: " << log_data.data() << std::endl;
+
     auto log_block_num = log_size / DiskBlockSize;
     for (usize i = 0; i < log_block_num; i++)
     {
-      memcpy(bm_->unsafe_get_block_ptr() + bm_->log_block_id * bm_->block_size() + DiskBlockSize * i, log_data.data() + DiskBlockSize * i, DiskBlockSize);
-      bm_->sync(bm_->log_block_id + i);
+      memcpy(bm_->unsafe_get_block_ptr() + bm_->log_block_start * bm_->block_size() + DiskBlockSize * i, log_data.data() + DiskBlockSize * i, DiskBlockSize);
     }
     if (log_size % DiskBlockSize != 0)
     {
-      memcpy(bm_->unsafe_get_block_ptr() + bm_->log_block_id * bm_->block_size() + DiskBlockSize * log_block_num, log_data.data() + DiskBlockSize * log_block_num, log_size % DiskBlockSize);
-      bm_->sync(bm_->log_block_id + log_block_num);
+      memcpy(bm_->unsafe_get_block_ptr() + bm_->log_block_start * bm_->block_size() + DiskBlockSize * log_block_num, log_data.data() + DiskBlockSize * log_block_num, log_size % DiskBlockSize);
     }
 
     commit_log(txn_id);
@@ -74,14 +85,22 @@ namespace chfs
   auto CommitLog::commit_log(txn_id_t txn_id) -> void
   {
     last_txn_id_ = txn_id;
+    log_entry_num++;
+    bm_->flush();
   }
 
   // {Your code here}
   auto CommitLog::checkpoint() -> void
   {
     bm_->flush();
-    // 清空 log
-    bm_->log_map.clear();
+    // 重置 log
+    bm_->log_block_cnt = 0;
+    bm_->last_txn_id = 0;
+    bm_->log_buffer.clear();
+    for(usize i = 0; i < bm_->log_block_num; i++)
+    {
+      bm_->zero_block(bm_->log_block_start + i);
+    }
   }
 
   // {Your code here}
@@ -91,12 +110,12 @@ namespace chfs
     std::vector<u8> logs(bm_->log_block_cnt * DiskBlockSize);
     for (usize i = 0; i < bm_->log_block_cnt; i++)
     {
-      memcpy(logs.data() + i * DiskBlockSize, bm_->unsafe_get_block_ptr() + bm_->log_block_id * bm_->block_size() + i * DiskBlockSize, DiskBlockSize);
+      memcpy(logs.data() + i * DiskBlockSize, bm_->unsafe_get_block_ptr() + bm_->log_block_start * bm_->block_size() + i * DiskBlockSize, DiskBlockSize);
     }
 
     // 逐个 log 进行恢复
     usize offset = 0;
-    while (offset < logs.size())
+    for(usize log_cnt = 0; log_cnt < log_entry_num; log_cnt++)
     {
       // 读取 txn_id 和 op_num
       txn_id_t txn_id;
@@ -120,13 +139,6 @@ namespace chfs
         memcpy(bm_->unsafe_get_block_ptr() + block_id * bm_->block_size(), new_block_state.data(), DiskBlockSize);
         bm_->sync(block_id);
       }
-    }
-
-    // 恢复 log_map 中的 log
-    for (auto &log : bm_->log_map)
-    {
-      memcpy(bm_->unsafe_get_block_ptr() + log.first * bm_->block_size(), log.second.data(), DiskBlockSize);
-      bm_->sync(log.first);
     }
   }
 }; // namespace chfs
