@@ -150,16 +150,30 @@ namespace chfs
 
     // write log
     if(is_log_enabled_) {
+      std::cout << "\nwriting log ..." << std::endl;
+
       std::vector<std::shared_ptr<BlockOperation>> ops;
       for(auto log : operation_->block_manager_->log_buffer) {
         auto op = std::make_shared<BlockOperation>(log.first, log.second);
         ops.push_back(op);
       }
+
+      std::cout << "log_buffer size: " << operation_->block_manager_->log_buffer.size() << std::endl;
+      std::cout << "log_buffer: " << std::endl;
+      for(auto log : operation_->block_manager_->log_buffer) {
+        std::cout << log.first << " " << log.second.size() << std::endl;
+      }
+      std::cout << "ops size: " << ops.size() << std::endl;
+      std::cout << "ops: " << std::endl;
+      for(auto op : ops) {
+        std::cout << op->block_id_ << " " << op->new_block_state_.size() << std::endl;
+      }
+      
       commit_log->append_log(operation_->block_manager_->last_txn_id, ops);
       operation_->block_manager_->log_buffer.clear();
       operation_->block_manager_->last_txn_id += 1;
 
-      std::cout << "commit_log" << std::endl;
+      std::cout << "commit_log\n" << std::endl;
     }
 
     if (allo_res.is_err())

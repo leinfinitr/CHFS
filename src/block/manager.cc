@@ -118,9 +118,27 @@ namespace chfs
     }
     // 保留最后 1024 个 block 用于 log
     this->log_block_num = 1024;
-    this->log_block_start = this->block_cnt - this->log_block_cnt;
+    this->log_block_start = this->block_cnt - this->log_block_num;
     this->log_block_cnt = 0;
     this->last_txn_id = 0;
+  }
+
+  auto BlockManager::write_log_block(block_id_t log_block_id, const u8 *log_block_data)
+      -> ChfsNullResult
+  {
+    memcpy(this->block_data + (log_block_start + log_block_id) * this->block_sz, log_block_data, this->block_sz);
+    // std::cout << "we are writing log block: " << log_block_id << std::endl;
+    return KNullOk;
+  }
+
+  auto BlockManager::write_partial_log_block(block_id_t log_block_id,
+                                             const u8 *log_block_data, usize offset, usize len)
+
+      -> ChfsNullResult
+  {
+    memcpy(this->block_data + (log_block_start + log_block_id) * this->block_sz + offset, log_block_data, len);
+    // std::cout << "we are writing partial log block: " << log_block_id << std::endl;
+    return KNullOk;
   }
 
   auto BlockManager::write_block(block_id_t block_id, const u8 *data)
@@ -129,7 +147,8 @@ namespace chfs
     // 写入 log
     if (is_log_enabled)
     {
-      if(block_id >= log_block_start){
+      if (block_id >= log_block_start)
+      {
         std::cout << "Block id is larger than log block start id" << std::endl;
         return ErrorType::INVALID;
       }
@@ -138,9 +157,9 @@ namespace chfs
       memcpy(write_data.data(), data, this->block_sz);
       this->log_buffer[block_id] = write_data;
 
-      std::cout << "Write log" << std::endl;
-      std::cout << "block_id: " << block_id << std::endl;
-      std::cout << "log entry num: " << this->log_buffer.size() << std::endl;
+      // std::cout << "Write log" << std::endl;
+      // std::cout << "block_id: " << block_id << std::endl;
+      // std::cout << "log entry num: " << this->log_buffer.size() << std::endl;
     }
 
     if (this->maybe_failed && block_id < this->block_cnt)
@@ -148,15 +167,15 @@ namespace chfs
       if (this->write_fail_cnt >= 3)
       {
         this->write_fail_cnt = 0;
-        std::cout << "Return error" << std::endl;
+        // std::cout << "Return error" << std::endl;
         return ErrorType::INVALID;
       }
     }
 
     memcpy(this->block_data + block_id * this->block_sz, data, this->block_sz);
     this->write_fail_cnt++;
-    std::cout << "we are writing block " << block_id << std::endl
-              << "write_fail_cnt: " << this->write_fail_cnt << std::endl;
+    // std::cout << "we are writing block: " << block_id << std::endl
+    //           << "write_fail_cnt: " << this->write_fail_cnt << std::endl;
     return KNullOk;
   }
 
@@ -166,7 +185,8 @@ namespace chfs
   {
     if (is_log_enabled)
     {
-      if(block_id >= log_block_start){
+      if (block_id >= log_block_start)
+      {
         std::cout << "Block id is larger than log block start id" << std::endl;
         return ErrorType::INVALID;
       }
@@ -176,15 +196,15 @@ namespace chfs
       memcpy(write_data.data() + offset, data, len);
       this->log_buffer[block_id] = write_data;
 
-      std::cout << "Write log" << std::endl;
-      std::cout << "block_id: " << block_id << std::endl;
-      std::cout << "log entry num: " << this->log_buffer.size() << std::endl; 
+      // std::cout << "Write log" << std::endl;
+      // std::cout << "block_id: " << block_id << std::endl;
+      // std::cout << "log entry num: " << this->log_buffer.size() << std::endl;
     }
 
     memcpy(this->block_data + block_id * this->block_sz + offset, data, len);
     this->write_fail_cnt++;
-    std::cout << "we are writing partial block " << block_id << std::endl
-              << "write_fail_cnt: " << this->write_fail_cnt << std::endl;
+    // std::cout << "we are writing partial block: " << block_id << std::endl
+    //           << "write_fail_cnt: " << this->write_fail_cnt << std::endl;
     return KNullOk;
   }
 
