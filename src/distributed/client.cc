@@ -29,7 +29,6 @@ namespace chfs
     return KNullOk;
   }
 
-  // {Your code here}
   auto ChfsClient::mknode(FileType type, inode_id_t parent,
                           const std::string &name) -> ChfsResult<inode_id_t>
   {
@@ -46,7 +45,6 @@ namespace chfs
     }
   }
 
-  // {Your code here}
   auto ChfsClient::unlink(inode_id_t parent, std::string const &name)
       -> ChfsNullResult
   {
@@ -62,7 +60,6 @@ namespace chfs
     }
   }
 
-  // {Your code here}
   auto ChfsClient::lookup(inode_id_t parent, const std::string &name)
       -> ChfsResult<inode_id_t>
   {
@@ -78,7 +75,6 @@ namespace chfs
     }
   }
 
-  // {Your code here}
   auto ChfsClient::readdir(inode_id_t id)
       -> ChfsResult<std::vector<std::pair<std::string, inode_id_t>>>
   {
@@ -94,7 +90,6 @@ namespace chfs
     }
   }
 
-  // {Your code here}
   auto ChfsClient::get_type_attr(inode_id_t id)
       -> ChfsResult<std::pair<InodeType, FileAttr>>
   {
@@ -118,7 +113,6 @@ namespace chfs
   /**
    * Read and Write operations are more complicated.
    */
-  // {Your code here}
   auto ChfsClient::read_file(inode_id_t id, usize offset, usize size)
       -> ChfsResult<std::vector<u8>>
   {
@@ -126,7 +120,8 @@ namespace chfs
     auto call_res = metadata_server_->call("get_block_map", id);
     auto res = call_res.unwrap()->as<std::vector<BlockInfo>>();
     std::cout << "\nread file: " << id << " offset: " << offset << " size: " << size << std::endl;
-    for(auto info : res) {
+    for (auto info : res)
+    {
       std::cout << "block_id: " << std::get<0>(info) << " mac_id: " << std::get<1>(info) << " version: " << std::get<2>(info) << std::endl;
     }
     if (res.size() == 0)
@@ -137,7 +132,7 @@ namespace chfs
     {
       auto read_block_num = offset / 4096;    // 计算从第几个 block 开始读取
       auto read_block_offset = offset % 4096; // 计算从 block 的第几个字节开始读取
-      std::vector<u8> result;           // 保存读取的数据
+      std::vector<u8> result;                 // 保存读取的数据
       usize read_size = 0;                    // 已经读取的数据大小
 
       // 遍历 block map，从 data server 读取数据
@@ -193,7 +188,6 @@ namespace chfs
     }
   }
 
-  // {Your code here}
   auto ChfsClient::write_file(inode_id_t id, usize offset, std::vector<u8> data)
       -> ChfsNullResult
   {
@@ -220,7 +214,8 @@ namespace chfs
       std::cout << "block_id: " << std::get<0>(block_info) << " mac_id: " << std::get<1>(block_info) << " version: " << std::get<2>(block_info) << std::endl;
       block_id_t block_id = std::get<0>(block_info);
       mac_id_t mac_id = std::get<1>(block_info);
-      if(mac_id == 0) {
+      if (mac_id == 0)
+      {
         break;
       }
 
@@ -316,7 +311,6 @@ namespace chfs
     return KNullOk;
   }
 
-  // {Your code here}
   auto ChfsClient::free_file_block(inode_id_t id, block_id_t block_id,
                                    mac_id_t mac_id) -> ChfsNullResult
   {

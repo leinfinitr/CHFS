@@ -302,7 +302,7 @@ namespace chfs
         // 更新 inode block
         inode->block_attrs[block_id_pos] = block_attr{allo_block_id, client.first, version};
         inode->inner_attr.size += operation_->block_manager_->block_size();
-        std::cout << "block_id_pos: " << block_id_pos << " allo_block_id: " << allo_block_id << " " << inode->block_attrs[block_id_pos].block_id << std::endl;
+        std::cout << "block_id_pos: " << block_id_pos << " allo_block_id: " << allo_block_id << " " << inode->block_attrs[block_id_pos].block_id << " block size: " << inode->inner_attr.size << std::endl;
 
         // 将 inode block 写回
         auto write_res = operation_->block_manager_->write_block(inode_block_id, data);
@@ -327,7 +327,6 @@ namespace chfs
     return {};
   }
 
-  // {Your code here}
   auto MetadataServer::free_block(inode_id_t id, block_id_t block_id,
                                   mac_id_t machine_id) -> bool
   {
@@ -338,6 +337,7 @@ namespace chfs
     auto read_res = operation_->block_manager_->read_block(inode_block_id, data);
     if (read_res.is_err())
     {
+      delete[] data;
       return {};
     }
     auto inode = reinterpret_cast<Inode *>(data);
@@ -348,19 +348,26 @@ namespace chfs
     if (res.unwrap()->as<bool>())
     {
       // 更新 inode
-      for(auto i = 0; i < inode->inner_attr.size / operation_->block_manager_->block_size(); i++) {
-        if(inode->block_attrs[i].block_id == block_id) {
+      for (auto i = 0; i < inode->inner_attr.size / operation_->block_manager_->block_size(); i++)
+      {
+        if (inode->block_attrs[i].block_id == block_id && inode->block_attrs[i].mac_id == machine_id)
+        {
           inode->block_attrs[i].block_id = 0;
           inode->block_attrs[i].mac_id = 0;
-          inode->block_attrs[i].version += 1;
+          inode->block_attrs[i].version = 0;
           break;
         }
       }
       inode->inner_attr.size -= operation_->block_manager_->block_size();
-      std::cout << "free block: " << block_id << std::endl;
-      auto write_res = operation_->block_manager_->write_block(block_id, data);
+      std::cout << "free block: " << block_id << " block size: " << inode->inner_attr.size << std::endl;
+      auto write_res = operation_->block_manager_->write_block(inode_block_id, data);
+
+      // auto read_res = operation_->block_manager_->read_block(inode_block_id, data);
+      // std::cout << "read block size: " << inode->inner_attr.size << std::endl;
+
       if (write_res.is_err())
       {
+        delete[] data;
         return {};
       }
       success = true;
@@ -372,7 +379,6 @@ namespace chfs
     return success;
   }
 
-  // {Your code here}
   auto MetadataServer::readdir(inode_id_t node)
       -> std::vector<std::pair<std::string, inode_id_t>>
   {
@@ -391,7 +397,6 @@ namespace chfs
     return res;
   }
 
-  // {Your code here}
   auto MetadataServer::get_type_attr(inode_id_t id)
       -> std::tuple<u64, u64, u64, u64, u8>
   {

@@ -4,7 +4,6 @@
 
 namespace chfs {
 
-// {Your code here}
 auto FileOperation::alloc_inode(InodeType type) -> ChfsResult<inode_id_t> {
   inode_id_t inode_id = static_cast<inode_id_t>(0);
   auto inode_res = ChfsResult<inode_id_t>(inode_id);
@@ -61,7 +60,6 @@ auto FileOperation::write_file_w_off(inode_id_t id, const char *data, u64 sz,
   return ChfsResult<u64>(sz);
 }
 
-// {Your code here}
 auto FileOperation::write_file(inode_id_t id, const std::vector<u8> &content)
     -> ChfsNullResult {
   auto error_code = ErrorType::DONE;
@@ -244,7 +242,6 @@ err_ret:
   return ChfsNullResult(error_code);
 }
 
-// {Your code here}
 auto FileOperation::read_file(inode_id_t id) -> ChfsResult<std::vector<u8>> {
   auto error_code = ErrorType::DONE;
   std::vector<u8> content;

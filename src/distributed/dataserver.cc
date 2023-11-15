@@ -77,7 +77,6 @@ namespace chfs
 
   DataServer::~DataServer() { server_.reset(); }
 
-  // {Your code here}
   auto DataServer::read_data(block_id_t block_id, usize offset, usize len,
                              version_t version) -> std::vector<u8>
   {
@@ -119,7 +118,6 @@ namespace chfs
     return std::vector<u8>(result.begin() + offset, result.begin() + offset + len);
   }
 
-  // {Your code here}
   auto DataServer::write_data(block_id_t block_id, usize offset,
                               std::vector<u8> &buffer) -> bool
   {
@@ -132,7 +130,6 @@ namespace chfs
     return true;
   }
 
-  // {Your code here}
   auto DataServer::alloc_block() -> std::pair<block_id_t, version_t>
   {
     auto allo_res = this->block_allocator_->allocate();
@@ -163,7 +160,6 @@ namespace chfs
     return {block_id, version};
   }
 
-  // {Your code here}
   auto DataServer::free_block(block_id_t block_id) -> bool
   {
     ChfsNullResult result = this->block_allocator_->deallocate(block_id);

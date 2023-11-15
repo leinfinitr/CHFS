@@ -12,7 +12,6 @@ namespace chfs
   /**
    * `CommitLog` part
    */
-  // {Your code here}
   CommitLog::CommitLog(std::shared_ptr<BlockManager> bm,
                        bool is_checkpoint_enabled)
       : is_checkpoint_enabled_(is_checkpoint_enabled), bm_(bm)
@@ -23,13 +22,11 @@ namespace chfs
 
   CommitLog::~CommitLog() {}
 
-  // {Your code here}
   auto CommitLog::get_log_entry_num() -> usize
   {
     return log_entry_num;
   }
 
-  // {Your code here}
   auto CommitLog::append_log(txn_id_t txn_id,
                              std::vector<std::shared_ptr<BlockOperation>> ops)
       -> void
@@ -91,14 +88,12 @@ namespace chfs
     commit_log(txn_id);
   }
 
-  // {Your code here}
   auto CommitLog::commit_log(txn_id_t txn_id) -> void
   {
     last_txn_id_ = txn_id;
     log_entry_num++;
   }
 
-  // {Your code here}
   auto CommitLog::checkpoint() -> void
   {
     // 重置 log
@@ -113,7 +108,6 @@ namespace chfs
     }
   }
 
-  // {Your code here}
   auto CommitLog::recover() -> void
   {
     std::cout << "recovering ..." << std::endl;

@@ -21,7 +21,6 @@ auto inode_id_to_string(inode_id_t id) -> std::string {
   return ss.str();
 }
 
-// {Your code here}
 auto dir_list_to_string(const std::list<DirectoryEntry> &entries)
     -> std::string {
   std::ostringstream oss;
@@ -36,7 +35,6 @@ auto dir_list_to_string(const std::list<DirectoryEntry> &entries)
   return oss.str();
 }
 
-// {Your code here}
 auto append_to_directory(std::string src, std::string filename, inode_id_t id)
     -> std::string {
 
@@ -50,7 +48,6 @@ auto append_to_directory(std::string src, std::string filename, inode_id_t id)
   return res;
 }
 
-// {Your code here}
 void parse_directory(std::string &src, std::list<DirectoryEntry> &list) {
 
   // TODO: Implement this function.
@@ -71,7 +68,6 @@ void parse_directory(std::string &src, std::list<DirectoryEntry> &list) {
 
 }
 
-// {Your code here}
 auto rm_from_directory(std::string src, std::string filename) -> std::string {
 
   auto res = std::string("");
@@ -104,7 +100,6 @@ auto read_directory(FileOperation *fs, inode_id_t id,
   return KNullOk;
 }
 
-// {Your code here}
 auto FileOperation::lookup(inode_id_t id, const char *name)
     -> ChfsResult<inode_id_t> {
   std::list<DirectoryEntry> list;
@@ -163,7 +158,6 @@ auto FileOperation::mk_helper(inode_id_t id, const char *name, InodeType type)
   return ChfsResult<inode_id_t>(inode);
 }
 
-// {Your code here}
 auto FileOperation::unlink(inode_id_t parent, const char *name)
     -> ChfsNullResult {
 
