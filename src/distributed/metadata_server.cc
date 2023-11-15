@@ -139,7 +139,6 @@ namespace chfs
     }
   }
 
-  // {Your code here}
   auto MetadataServer::mknode(u8 type, inode_id_t parent, const std::string &name)
       -> inode_id_t
   {
@@ -149,31 +148,36 @@ namespace chfs
     auto allo_res = operation_->mk_helper(parent, name.c_str(), InodeType(type));
 
     // write log
-    if(is_log_enabled_) {
+    if (is_log_enabled_)
+    {
       std::cout << "\nwriting log ..." << std::endl;
 
       std::vector<std::shared_ptr<BlockOperation>> ops;
-      for(auto log : operation_->block_manager_->log_buffer) {
+      for (auto log : operation_->block_manager_->log_buffer)
+      {
         auto op = std::make_shared<BlockOperation>(log.first, log.second);
         ops.push_back(op);
       }
 
       std::cout << "log_buffer size: " << operation_->block_manager_->log_buffer.size() << std::endl;
       std::cout << "log_buffer: " << std::endl;
-      for(auto log : operation_->block_manager_->log_buffer) {
+      for (auto log : operation_->block_manager_->log_buffer)
+      {
         std::cout << log.first << " " << log.second.size() << std::endl;
       }
       std::cout << "ops size: " << ops.size() << std::endl;
       std::cout << "ops: " << std::endl;
-      for(auto op : ops) {
+      for (auto op : ops)
+      {
         std::cout << op->block_id_ << " " << op->new_block_state_.size() << std::endl;
       }
-      
+
       commit_log->append_log(operation_->block_manager_->last_txn_id, ops);
       operation_->block_manager_->log_buffer.clear();
       operation_->block_manager_->last_txn_id += 1;
 
-      std::cout << "commit_log\n" << std::endl;
+      std::cout << "commit_log\n"
+                << std::endl;
     }
 
     if (allo_res.is_err())
@@ -186,7 +190,6 @@ namespace chfs
     return inode;
   }
 
-  // {Your code here}
   auto MetadataServer::unlink(inode_id_t parent, const std::string &name)
       -> bool
   {
@@ -194,9 +197,11 @@ namespace chfs
     auto res = operation_->unlink(parent, name.c_str());
 
     // write log
-    if(is_log_enabled_) {
+    if (is_log_enabled_)
+    {
       std::vector<std::shared_ptr<BlockOperation>> ops;
-      for(auto log : operation_->block_manager_->log_buffer) {
+      for (auto log : operation_->block_manager_->log_buffer)
+      {
         auto op = std::make_shared<BlockOperation>(log.first, log.second);
         ops.push_back(op);
       }
@@ -215,7 +220,6 @@ namespace chfs
     return true;
   }
 
-  // {Your code here}
   auto MetadataServer::lookup(inode_id_t parent, const std::string &name)
       -> inode_id_t
   {
@@ -228,7 +232,6 @@ namespace chfs
     return 0;
   }
 
-  // {Your code here}
   auto MetadataServer::get_block_map(inode_id_t id) -> std::vector<BlockInfo>
   {
     // Read the inode
@@ -237,21 +240,25 @@ namespace chfs
     auto read_res = operation_->block_manager_->read_block(inode_block_id, data);
     if (read_res.is_err())
     {
+      delete[] data;
       return {};
     }
     auto inode = reinterpret_cast<Inode *>(data);
 
     // Get block info
     std::vector<BlockInfo> res;
-    for (auto i = 0; i < inode->get_nblocks(); i++)
+    if(inode->get_size() == 0) {
+      delete[] data;
+      return res;
+    }
+    for (auto i = 0; i < inode->inner_attr.size / operation_->block_manager_->block_size(); i++)
     {
-      // 跳过 block_id 为 0 的 block
-      if (inode->blocks[i] == 0)
+      if (inode->block_attrs[i].block_id == 0)
       {
         continue;
       }
       block_attr attr = inode->block_attrs[i];
-      res.push_back(BlockInfo{inode->blocks[i], attr.mac_id, attr.version});
+      res.push_back(BlockInfo{attr.block_id, attr.mac_id, attr.version});
     }
 
     delete[] data;
@@ -259,12 +266,12 @@ namespace chfs
     return res;
   }
 
-  // {Your code here}
   auto MetadataServer::allocate_block(inode_id_t id) -> BlockInfo
   {
     std::lock_guard<std::mutex> lock(allo_mutex);
     // 读取 inode
     auto inode_block_id = operation_->inode_manager_->get(id).unwrap();
+    std::cout << "inode_block_id: " << inode_block_id << std::endl;
     u8 *data = new chfs::u8[operation_->block_manager_->block_size()];
     auto read_res = operation_->block_manager_->read_block(inode_block_id, data);
     if (read_res.is_err())
@@ -297,9 +304,9 @@ namespace chfs
         }
 
         // 更新 inode block
-        inode->blocks[block_id_pos] = allo_block_id;
-        inode->block_attrs[block_id_pos] = block_attr{client.first, version};
+        inode->block_attrs[block_id_pos] = block_attr{allo_block_id, client.first, version};
         inode->inner_attr.size += operation_->block_manager_->block_size();
+        std::cout << "block_id_pos: " << block_id_pos << " allo_block_id: " << allo_block_id << " " << inode->block_attrs[block_id_pos].block_id << std::endl;
 
         // 将 inode block 写回
         auto write_res = operation_->block_manager_->write_block(inode_block_id, data);
@@ -345,17 +352,16 @@ namespace chfs
     if (res.unwrap()->as<bool>())
     {
       // 更新 inode
-      for (auto i = 0; i < inode->get_nblocks(); i++)
-      {
-        if (inode->blocks[i] == block_id)
-        {
-          inode->blocks[i] = 0;
-          inode->block_attrs[i] = block_attr{0, 0};
-          inode->inner_attr.size -= operation_->block_manager_->block_size();
-          std::cout << "free block: " << block_id << std::endl;
+      for(auto i = 0; i < inode->inner_attr.size / operation_->block_manager_->block_size(); i++) {
+        if(inode->block_attrs[i].block_id == block_id) {
+          inode->block_attrs[i].block_id = 0;
+          inode->block_attrs[i].mac_id = 0;
+          inode->block_attrs[i].version += 1;
           break;
         }
       }
+      inode->inner_attr.size -= operation_->block_manager_->block_size();
+      std::cout << "free block: " << block_id << std::endl;
       auto write_res = operation_->block_manager_->write_block(block_id, data);
       if (write_res.is_err())
       {

@@ -123,20 +123,19 @@ namespace chfs
     this->last_txn_id = 0;
   }
 
-  auto BlockManager::write_log_block(block_id_t log_block_id, const u8 *log_block_data)
+  auto BlockManager::write_log_block(const u8 *log_block_data)
       -> ChfsNullResult
   {
-    memcpy(this->block_data + (log_block_start + log_block_id) * this->block_sz, log_block_data, this->block_sz);
+    memcpy(this->block_data + (log_block_start + log_block_cnt) * this->block_sz, log_block_data, this->block_sz);
     // std::cout << "we are writing log block: " << log_block_id << std::endl;
     return KNullOk;
   }
 
-  auto BlockManager::write_partial_log_block(block_id_t log_block_id,
-                                             const u8 *log_block_data, usize offset, usize len)
-
+  auto BlockManager::write_partial_log_block(
+      const u8 *log_block_data, usize offset, usize len)
       -> ChfsNullResult
   {
-    memcpy(this->block_data + (log_block_start + log_block_id) * this->block_sz + offset, log_block_data, len);
+    memcpy(this->block_data + (log_block_start + log_block_cnt) * this->block_sz + offset, log_block_data, len);
     // std::cout << "we are writing partial log block: " << log_block_id << std::endl;
     return KNullOk;
   }

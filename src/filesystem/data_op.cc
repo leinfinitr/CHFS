@@ -120,8 +120,7 @@ auto FileOperation::write_file(inode_id_t id, const std::vector<u8> &content)
   if (new_block_num > old_block_num) {
     // If we need to allocate more blocks.
     for (usize idx = old_block_num; idx < new_block_num; ++idx) {
-
-      // TODO: Implement the case of allocating more blocks.
+      // Implement the case of allocating more blocks.
       // 1. Allocate a block.
       // 2. Fill the allocated block id to the inode.
       //    You should pay attention to the case of indirect block.
@@ -153,13 +152,10 @@ auto FileOperation::write_file(inode_id_t id, const std::vector<u8> &content)
     // We need to free the extra blocks.
     for (usize idx = new_block_num; idx < old_block_num; ++idx) {
       if (inode_p->is_direct_block(idx)) {
-
-        // TODO: Free the direct extra block.
+        // Free the direct extra block.
         this->block_allocator_->deallocate((*inode_p)[idx]);
-
       } else {
-
-        // TODO: Free the indirect extra block.
+        // Free the indirect extra block.
         this->block_allocator_->deallocate(
             reinterpret_cast<block_id_t *>(indirect_block.data())[idx - inlined_blocks_num]);
       }
@@ -196,19 +192,15 @@ auto FileOperation::write_file(inode_id_t id, const std::vector<u8> &content)
       memcpy(buffer.data(), content.data() + write_sz, sz);
       auto block_id = static_cast<block_id_t>(0);
       if (inode_p->is_direct_block(block_idx)) {
-
-        // TODO: Implement getting block id of current direct block.
+        // Implement getting block id of current direct block.
         block_id = (*inode_p)[block_idx];
-
       } else {
-
-        // TODO: Implement getting block id of current indirect block.
+        // Implement getting block id of current indirect block.
         block_id = reinterpret_cast<block_id_t *>(indirect_block.data())[block_idx - inlined_blocks_num];
-
       }
 
-      // TODO: Write to current block.
-      std::cout << "Write 1" << std::endl;
+      // Write to current block.
+      std::cout << "Write current block: " << block_id << std::endl;
       auto write_res = this->block_manager_->write_block(block_id, buffer.data());
       if (write_res.is_err()) {
         std::cout << "Error 1" << std::endl;
@@ -225,7 +217,7 @@ auto FileOperation::write_file(inode_id_t id, const std::vector<u8> &content)
   {
     inode_p->inner_attr.set_all_time(time(0));
 
-    std::cout << "Write 2" << std::endl;
+    std::cout << "Write attribute" << std::endl;
     auto write_res =
         this->block_manager_->write_block(inode_res.unwrap(), inode.data());
     if (write_res.is_err()) {
@@ -234,7 +226,7 @@ auto FileOperation::write_file(inode_id_t id, const std::vector<u8> &content)
       goto err_ret;
     }
     if (indirect_block.size() != 0) {
-      std::cout << "Write 3" << std::endl;
+      std::cout << "Write indrect block" << std::endl;
       write_res =
           inode_p->write_indirect_block(this->block_manager_, indirect_block);
       if (write_res.is_err()) {

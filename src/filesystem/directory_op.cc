@@ -123,7 +123,6 @@ auto FileOperation::lookup(inode_id_t id, const char *name)
   return ChfsResult<inode_id_t>(ErrorType::NotExist);
 }
 
-// {Your code here}
 auto FileOperation::mk_helper(inode_id_t id, const char *name, InodeType type)
     -> ChfsResult<inode_id_t> {
 
@@ -136,14 +135,14 @@ auto FileOperation::mk_helper(inode_id_t id, const char *name, InodeType type)
     return ChfsResult<inode_id_t>(ErrorType::AlreadyExist);
   }
 
-  std::cout << "alloc_inode" << std::endl;
+  // std::cout << "alloc_inode" << std::endl;
   auto allo_res = alloc_inode(type);
   if (allo_res.is_err()) {
     return ChfsResult<inode_id_t>(ErrorType::OUT_OF_RESOURCE);
   }
   auto inode = allo_res.unwrap();
 
-  std::cout << "read_file" << std::endl;
+  // std::cout << "read_file" << std::endl;
   auto read_res = read_file(id);
   if(read_res.is_err()) {
     return ChfsResult<inode_id_t>(ErrorType::INVALID);

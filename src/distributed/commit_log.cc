@@ -34,7 +34,7 @@ namespace chfs
                              std::vector<std::shared_ptr<BlockOperation>> ops)
       -> void
   {
-    if(ops.size() == 0)
+    if (ops.size() == 0)
     {
       return;
     }
@@ -62,12 +62,12 @@ namespace chfs
              DiskBlockSize);
       offset += DiskBlockSize;
     }
-    
+
     std::cout << "\nlog size: " << log_size << std::endl;
     std::cout << "tnx_id: " << txn_id << std::endl;
     std::cout << "bm_->log_block_start: " << bm_->log_block_start << std::endl;
     std::cout << "ops :" << ops.size() << std::endl;
-    for(auto &op : ops)
+    for (auto &op : ops)
     {
       std::cout << "op->block_id_: " << op->block_id_ << " " << op->new_block_state_.size() << std::endl;
     }
@@ -76,13 +76,13 @@ namespace chfs
     auto log_block_num = log_size / DiskBlockSize;
     for (usize i = 0; i < log_block_num; i++)
     {
-      bm_->write_log_block(bm_->log_block_cnt + i, log_data.data() + DiskBlockSize * i);
+      bm_->write_log_block(log_data.data() + DiskBlockSize * i);
       bm_->sync(bm_->log_block_cnt + i);
       bm_->log_block_cnt++;
     }
     if (log_size % DiskBlockSize != 0)
     {
-      bm_->write_partial_log_block(bm_->log_block_cnt + log_block_num, log_data.data() + DiskBlockSize * log_block_num, 0, log_size % DiskBlockSize);
+      bm_->write_partial_log_block(log_data.data() + DiskBlockSize * log_block_num, 0, log_size % DiskBlockSize);
       bm_->sync(bm_->log_block_cnt + log_block_num);
       bm_->log_block_cnt++;
     }
@@ -107,7 +107,7 @@ namespace chfs
     last_txn_id_ = 0;
     log_entry_num = 0;
     bm_->log_buffer.clear();
-    for(usize i = 0; i < bm_->log_block_num; i++)
+    for (usize i = 0; i < bm_->log_block_num; i++)
     {
       bm_->zero_block(bm_->log_block_start + i);
     }
@@ -122,13 +122,13 @@ namespace chfs
     std::vector<u8> logs(bm_->log_block_cnt * DiskBlockSize);
     for (usize i = 0; i < bm_->log_block_cnt; i++)
     {
-      memcpy(logs.data() + i * DiskBlockSize, bm_->unsafe_get_block_ptr() + bm_->log_block_start * bm_->block_size() + i * DiskBlockSize, DiskBlockSize);
+      bm_->read_block(bm_->log_block_start + i, logs.data() + i * DiskBlockSize);
     }
 
     // 逐个 log 进行恢复
     usize offset = 0;
     std::cout << "log_entry_num: " << log_entry_num << std::endl;
-    for(usize log_cnt = 0; log_cnt < log_entry_num; log_cnt++)
+    for (usize log_cnt = 0; log_cnt < log_entry_num; log_cnt++)
     {
       // 读取 txn_id 和 op_num
       txn_id_t txn_id;
@@ -154,12 +154,12 @@ namespace chfs
 
         std::cout << "block_id: " << block_id << std::endl;
         // 恢复
-        bm_->write_log_block(block_id, new_block_state.data());
+        bm_->write_block(block_id, new_block_state.data());
         bm_->sync(block_id);
       }
-    }
 
-    // 每读完一个 tnx，就将 offset 补足为 DiskBlockSize 的倍数
-    offset = (offset + DiskBlockSize - 1) / DiskBlockSize * DiskBlockSize;
+      // 每读完一个 tnx，就将 offset 补足为 DiskBlockSize 的倍数
+      offset = (offset + DiskBlockSize - 1) / DiskBlockSize * DiskBlockSize;
+    }
   }
 }; // namespace chfs
