@@ -247,10 +247,6 @@ namespace chfs
 
     // Get block info
     std::vector<BlockInfo> res;
-    if(inode->get_size() == 0) {
-      delete[] data;
-      return res;
-    }
     for (auto i = 0; i < inode->inner_attr.size / operation_->block_manager_->block_size(); i++)
     {
       if (inode->block_attrs[i].block_id == 0)

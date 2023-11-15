@@ -137,7 +137,7 @@ namespace chfs
     {
       auto read_block_num = offset / 4096;    // 计算从第几个 block 开始读取
       auto read_block_offset = offset % 4096; // 计算从 block 的第几个字节开始读取
-      std::vector<u8> result(size);           // 保存读取的数据
+      std::vector<u8> result;           // 保存读取的数据
       usize read_size = 0;                    // 已经读取的数据大小
 
       // 遍历 block map，从 data server 读取数据
@@ -184,6 +184,7 @@ namespace chfs
             {
               result.insert(result.end(), res.begin(), res.end());
             }
+            std::cout << "res.size(): " << res.size() << " result.size(): " << result.size() << std::endl;
             read_size += read_size_this;
           }
         }

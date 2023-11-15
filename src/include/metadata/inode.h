@@ -96,7 +96,7 @@ class Inode {
   // The actual number of blocks should be larger,
   // which is dynamically calculated based on the block size
 public:
-  [[maybe_unused]] block_id_t blocks[0];
+  [[maybe_unused]] block_id_t blocks[0];  // 不要动...
   [[maybe_unused]] block_attr block_attrs[0];
 
 public:
