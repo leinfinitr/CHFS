@@ -176,8 +176,7 @@ namespace chfs
       operation_->block_manager_->log_buffer.clear();
       operation_->block_manager_->last_txn_id += 1;
 
-      std::cout << "commit_log\n"
-                << std::endl;
+      std::cout << "commit_log"<< std::endl;
     }
 
     if (allo_res.is_err())
@@ -209,7 +208,7 @@ namespace chfs
       operation_->block_manager_->log_buffer.clear();
       operation_->block_manager_->last_txn_id += 1;
 
-      std::cout << "commit_log" << std::endl;
+      std::cout << "commit_log..." << std::endl;
     }
 
     if (res.is_err())

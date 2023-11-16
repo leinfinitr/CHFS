@@ -121,22 +121,45 @@ namespace chfs
     this->log_block_start = this->block_cnt - this->log_block_num;
     this->log_block_cnt = 0;
     this->last_txn_id = 0;
+    std::cout << "log block start: " << this->log_block_start << " block cnt: " << this->block_cnt << std::endl;
+    for(usize i = 0; i < this->log_block_num; i++)
+    {
+      this->zero_block(this->log_block_start + i);
+      std::vector<u8> init_data(this->block_sz);
+      for(usize j = 0; j < this->block_sz; j++)
+      {
+        init_data[j] = 0;
+      }
+      memcpy(this->block_data + (this->log_block_start + i) * this->block_sz, init_data.data(), this->block_sz);
+    }
   }
 
-  auto BlockManager::write_log_block(const u8 *log_block_data)
+  auto BlockManager::write_log_block(const u8 *log_block_data, usize len)
       -> ChfsNullResult
   {
-    memcpy(this->block_data + (log_block_start + log_block_cnt) * this->block_sz, log_block_data, this->block_sz);
+    if (this->log_block_cnt >= this->log_block_num)
+    {
+      std::cout << "log block cnt is larger than log block num" << std::endl;
+      return ErrorType::INVALID;
+    }
+    if(len > this->block_sz)
+    {
+      std::cout << "len is larger than block size" << std::endl;
+      return ErrorType::INVALID;
+    }
+    std::cout << "log block cnt: " << this->log_block_cnt << " write size: " << len << std::endl;
+    memcpy(this->block_data + (this->log_block_start + this->log_block_cnt) * this->block_sz, log_block_data, len);
+    sync(this->log_block_start + this->log_block_cnt);
+    this->log_block_cnt++;
     // std::cout << "we are writing log block: " << log_block_id << std::endl;
     return KNullOk;
   }
 
-  auto BlockManager::write_partial_log_block(
-      const u8 *log_block_data, usize offset, usize len)
+  auto BlockManager::write_block_direct(block_id_t block_id, const u8 *data)
       -> ChfsNullResult
   {
-    memcpy(this->block_data + (log_block_start + log_block_cnt) * this->block_sz + offset, log_block_data, len);
-    // std::cout << "we are writing partial log block: " << log_block_id << std::endl;
+    memcpy(this->block_data + block_id * this->block_sz, data, this->block_sz);
+    sync(block_id);
     return KNullOk;
   }
 
@@ -144,6 +167,7 @@ namespace chfs
       -> ChfsNullResult
   {
     // 写入 log
+    // 此处只是将 log 写入 manager 中的缓存，真正写入 block 中是在 commit_log 中
     if (is_log_enabled)
     {
       if (block_id >= log_block_start)
@@ -156,9 +180,7 @@ namespace chfs
       memcpy(write_data.data(), data, this->block_sz);
       this->log_buffer[block_id] = write_data;
 
-      // std::cout << "Write log" << std::endl;
-      // std::cout << "block_id: " << block_id << std::endl;
-      // std::cout << "log entry num: " << this->log_buffer.size() << std::endl;
+      std::cout << "Write log: " << " block_id: " << block_id << " log buffer size: " << this->log_buffer.size() << std::endl;
     }
 
     if (this->maybe_failed && block_id < this->block_cnt)

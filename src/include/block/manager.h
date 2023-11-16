@@ -94,19 +94,17 @@ namespace chfs
 
     /**
      * Write a log block to the internal block device.
-     * @param log_block_id id of the log block
      * @param log_block_data raw log block data
+     * @param len the length of the log block data
      */
-    virtual auto write_log_block(const u8 *log_block_data) -> ChfsNullResult;
+    virtual auto write_log_block(const u8 *log_block_data, usize len) -> ChfsNullResult;
 
     /**
-     * Write a partial log block to the internal block device.
-     * @param log_block_id id of the log block
-     * @param log_block_data raw log block data
-     * @param offset the offset to write
-     * @param len the length to write
-     */
-    virtual auto write_partial_log_block(const u8 *log_block_data, usize offset, usize len) -> ChfsNullResult;
+     * Write a block to the internal block device directly.
+     * @param block_id id of the block
+     * @param data raw block data
+    */
+    virtual auto write_block_direct(block_id_t block_id, const u8 *data) -> ChfsNullResult;
 
     /**
      * Write a block to the internal block device.  This is a write-through one,

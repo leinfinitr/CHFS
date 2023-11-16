@@ -66,7 +66,6 @@ auto InodeManager::create_from_block_manager(std::shared_ptr<BlockManager> bm,
   return ChfsResult<InodeManager>(res);
 }
 
-// { Your code here }
 auto InodeManager::allocate_inode(InodeType type, block_id_t bid)
     -> ChfsResult<inode_id_t> {
   auto iter_res = BlockIterator::create(this->bm.get(), 1 + n_table_blocks,
@@ -86,7 +85,6 @@ auto InodeManager::allocate_inode(InodeType type, block_id_t bid)
 
     if (free_idx) {
       // If there is an available inode ID.
-
       // Setup the bitmap.
       bitmap.set(free_idx.value());
       auto res = iter.flush_cur_block();
@@ -94,7 +92,6 @@ auto InodeManager::allocate_inode(InodeType type, block_id_t bid)
         return ChfsResult<inode_id_t>(res.unwrap_error());
       }
 
-      // TODO:
       // 1. Initialize the inode with the given type.
       // 2. Setup the inode table.
       // 3. Return the id of the allocated inode.
@@ -122,10 +119,8 @@ auto InodeManager::allocate_inode(InodeType type, block_id_t bid)
   return ChfsResult<inode_id_t>(ErrorType::OUT_OF_RESOURCE);
 }
 
-// { Your code here }
 auto InodeManager::set_table(inode_id_t idx, block_id_t bid) -> ChfsNullResult {
 
-  // TODO: Implement this function.
   // Fill `bid` into the inode table entry
   // whose index is `idx`.
   if(idx >= max_inode_supported - 1) {

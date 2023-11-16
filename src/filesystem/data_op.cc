@@ -8,7 +8,6 @@ auto FileOperation::alloc_inode(InodeType type) -> ChfsResult<inode_id_t> {
   inode_id_t inode_id = static_cast<inode_id_t>(0);
   auto inode_res = ChfsResult<inode_id_t>(inode_id);
 
-  // TODO:
   // 1. Allocate a block for the inode.
   // 2. Allocate an inode.
   // 3. Initialize the inode block
