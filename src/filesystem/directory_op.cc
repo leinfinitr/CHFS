@@ -72,8 +72,7 @@ auto rm_from_directory(std::string src, std::string filename) -> std::string {
 
   auto res = std::string("");
 
-  // TODO: Implement this function.
-  //       Remove the directory entry from `src`.
+  // Remove the directory entry from `src`.
   std::list<DirectoryEntry> list;
   parse_directory(src, list);
   for (auto &entry : list) {
@@ -85,14 +84,10 @@ auto rm_from_directory(std::string src, std::string filename) -> std::string {
   return res;
 }
 
-/**
- * { Your implementation here }
- */
 auto read_directory(FileOperation *fs, inode_id_t id,
                     std::list<DirectoryEntry> &list) -> ChfsNullResult {
   
-  // TODO: Implement this function.
-  //       Read the directory with inode id `id` and store the result in `list`.
+  // Read the directory with inode id `id` and store the result in `list`.
   auto res = fs->read_file(id).unwrap();
   std::string data(res.begin(), res.end());
   parse_directory(data, list);
@@ -104,10 +99,9 @@ auto FileOperation::lookup(inode_id_t id, const char *name)
     -> ChfsResult<inode_id_t> {
   std::list<DirectoryEntry> list;
 
-  // TODO: Implement this function.
-  //       Lookup the file with name `name` in the directory with inode id `id`.
-  //       If the file exists, return the inode id of the file.
-  //       If the file does not exist, return ErrorType::NotExist.
+  // Lookup the file with name `name` in the directory with inode id `id`.
+  // If the file exists, return the inode id of the file.
+  // If the file does not exist, return ErrorType::NotExist.
   read_directory(this, id, list).unwrap();
   for (auto &entry : list) {
     if (entry.name == name) {
@@ -121,7 +115,6 @@ auto FileOperation::lookup(inode_id_t id, const char *name)
 auto FileOperation::mk_helper(inode_id_t id, const char *name, InodeType type)
     -> ChfsResult<inode_id_t> {
 
-  // TODO:
   // 1. Check if `name` already exists in the parent.
   //    If already exist, return ErrorType::AlreadyExist.
   // 2. Create the new inode.

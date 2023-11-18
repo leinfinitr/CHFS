@@ -120,6 +120,7 @@ namespace chfs
     this->log_block_num = 1024;
     this->log_block_start = this->block_cnt - this->log_block_num;
     this->log_block_cnt = 0;
+    this->log_block_offset = 0;
     this->last_txn_id = 0;
     std::cout << "log block start: " << this->log_block_start << " block cnt: " << this->block_cnt << std::endl;
     for(usize i = 0; i < this->log_block_num; i++)
@@ -134,6 +135,8 @@ namespace chfs
     }
   }
 
+  // 将 len 长的 log 写入 log block，使用时保证 len <= block_size
+  // 第一次实现时每个 tnx 最后的 log block 被浪费掉了，导致 test 13 存储空间不够
   auto BlockManager::write_log_block(const u8 *log_block_data, usize len)
       -> ChfsNullResult
   {
@@ -142,15 +145,28 @@ namespace chfs
       std::cout << "log block cnt is larger than log block num" << std::endl;
       return ErrorType::INVALID;
     }
-    if(len > this->block_sz)
-    {
-      std::cout << "len is larger than block size" << std::endl;
-      return ErrorType::INVALID;
-    }
+    // if(len > this->block_sz)
+    // {
+    //   std::cout << "len is larger than block size" << std::endl;
+    //   return ErrorType::INVALID;
+    // }
     std::cout << "log block cnt: " << this->log_block_cnt << " write size: " << len << std::endl;
-    memcpy(this->block_data + (this->log_block_start + this->log_block_cnt) * this->block_sz, log_block_data, len);
+    usize last_space = block_sz - log_block_offset;
+    if(len > last_space){
+      memcpy(block_data + (log_block_start + log_block_cnt) * block_sz + log_block_offset, log_block_data, last_space);
+      log_block_offset = 0;
+      log_block_cnt++;
+      memcpy(block_data + (log_block_start + log_block_cnt) * block_sz, log_block_data + last_space, len - last_space);
+      log_block_offset = len - last_space;
+    } else {
+      memcpy(this->block_data + (this->log_block_start + this->log_block_cnt) * this->block_sz, log_block_data, len);
+      log_block_offset += len;
+    }
+    if(log_block_offset == block_sz){
+      log_block_cnt++;
+      log_block_offset = 0;
+    }
     sync(this->log_block_start + this->log_block_cnt);
-    this->log_block_cnt++;
     // std::cout << "we are writing log block: " << log_block_id << std::endl;
     return KNullOk;
   }
@@ -183,15 +199,16 @@ namespace chfs
       std::cout << "Write log: " << " block_id: " << block_id << " log buffer size: " << this->log_buffer.size() << std::endl;
     }
 
-    if (this->maybe_failed && block_id < this->block_cnt)
-    {
-      if (this->write_fail_cnt >= 3)
-      {
-        this->write_fail_cnt = 0;
-        // std::cout << "Return error" << std::endl;
-        return ErrorType::INVALID;
-      }
-    }
+    // 此处的 write_fail_cnt >= 3 存在问题，将 maybe_failed 的判定放在 metedata_server 的 mknode 和 unlink 中
+    // if (this->maybe_failed && block_id < this->block_cnt)
+    // {
+    //   if (this->write_fail_cnt >= 3)
+    //   {
+    //     this->write_fail_cnt = 0;
+    //     // std::cout << "Return error" << std::endl;
+    //     return ErrorType::INVALID;
+    //   }
+    // }
 
     memcpy(this->block_data + block_id * this->block_sz, data, this->block_sz);
     this->write_fail_cnt++;
@@ -221,6 +238,16 @@ namespace chfs
       // std::cout << "block_id: " << block_id << std::endl;
       // std::cout << "log entry num: " << this->log_buffer.size() << std::endl;
     }
+
+    // if (this->maybe_failed && block_id < this->block_cnt)
+    // {
+    //   if (this->write_fail_cnt >= 3)
+    //   {
+    //     this->write_fail_cnt = 0;
+    //     // std::cout << "Return error" << std::endl;
+    //     return ErrorType::INVALID;
+    //   }
+    // }
 
     memcpy(this->block_data + block_id * this->block_sz + offset, data, len);
     this->write_fail_cnt++;

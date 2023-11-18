@@ -61,9 +61,8 @@ namespace chfs
       std::cout << "offset 3: " << offset << std::endl;
     }
 
-    std::cout << "log size: " << log_size << std::endl;
-    std::cout << "tnx_id: " << txn_id << std::endl;
-    std::cout << "bm_->log_block_start: " << bm_->log_block_start << std::endl;
+    std::cout << "log size: " << log_size << "tnx_id: " << txn_id << std::endl;
+    std::cout << "bm_->log_block_start: " << bm_->log_block_start << " bm_->log_block_offset: " << bm_->log_block_offset << std::endl;
     std::cout << "ops :" << ops.size() << std::endl;
     // for (auto &op : ops)
     // {
@@ -80,6 +79,7 @@ namespace chfs
     {
       bm_->write_log_block(log_data.data() + DiskBlockSize * log_block_num, log_size % DiskBlockSize);
     }
+    // bm_->write_log_block(log_data.data(), log_size);
     std::cout << "log_block_cnt: " << bm_->log_block_cnt << std::endl;
 
     commit_log(txn_id);
@@ -110,11 +110,13 @@ namespace chfs
     std::cout << "\nrecovering ..." << std::endl;
     // 读取所有的 log
     std::cout << "log_block_cnt: " << bm_->log_block_cnt << std::endl;
-    std::vector<u8> logs(bm_->log_block_cnt * DiskBlockSize);
-    for (usize i = 0; i < bm_->log_block_cnt; i++)
+    std::vector<u8> logs(bm_->log_block_cnt * DiskBlockSize + bm_->log_block_offset);
+    usize i = 0;
+    for (; i < bm_->log_block_cnt; i++)
     {
       bm_->read_block(bm_->log_block_start + i, logs.data() + i * DiskBlockSize);
     }
+    bm_->read_block(bm_->log_block_start + i, logs.data() + bm_->log_block_offset);
 
     // 逐个 log 进行恢复
     usize offset = 0;
@@ -130,7 +132,7 @@ namespace chfs
       offset += sizeof(usize);
 
       // 读取每个 op
-      std::cout << "tnx_id: " << txn_id << "op_num: " << op_num << std::endl;
+      std::cout << "tnx_id: " << txn_id << " op_num: " << op_num << std::endl;
       for (usize i = 0; i < op_num; i++)
       {
         block_id_t block_id;
@@ -146,11 +148,13 @@ namespace chfs
         std::cout << "block_id: " << block_id << std::endl;
         // 恢复
         bm_->write_block_direct(block_id, new_block_state.data());
-        std::cout << "recover finish" << std::endl;
+        std::cout << "recover finish: " << block_id << std::endl;
       }
 
       // 每读完一个 tnx，就将 offset 补足为 DiskBlockSize 的倍数
-      offset = (offset + DiskBlockSize - 1) / DiskBlockSize * DiskBlockSize;
+      // offset = (offset + DiskBlockSize - 1) / DiskBlockSize * DiskBlockSize;
     }
+
+    std::cout << "recover finish" << std::endl;
   }
 }; // namespace chfs

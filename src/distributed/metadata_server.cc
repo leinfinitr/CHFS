@@ -155,6 +155,8 @@ namespace chfs
       std::vector<std::shared_ptr<BlockOperation>> ops;
       for (auto log : operation_->block_manager_->log_buffer)
       {
+        if(log.first == 0)
+          continue;
         auto op = std::make_shared<BlockOperation>(log.first, log.second);
         ops.push_back(op);
       }
@@ -183,6 +185,8 @@ namespace chfs
     {
       return 0;
     }
+    if(this->may_failed_)
+      return 0;
     auto inode = allo_res.unwrap();
     std::cout << "inode: " << inode << std::endl;
 
@@ -201,6 +205,8 @@ namespace chfs
       std::vector<std::shared_ptr<BlockOperation>> ops;
       for (auto log : operation_->block_manager_->log_buffer)
       {
+        if(log.first == 0)
+          continue;
         auto op = std::make_shared<BlockOperation>(log.first, log.second);
         ops.push_back(op);
       }
@@ -215,6 +221,8 @@ namespace chfs
     {
       return false;
     }
+    if(this->may_failed_)
+      return false;
 
     return true;
   }

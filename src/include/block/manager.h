@@ -51,6 +51,7 @@ namespace chfs
     usize log_block_num;                              // the number of log blocks
     usize log_block_start;                            // the start block id of the log block
     usize log_block_cnt;                              // the number of writen log blocks
+    usize log_block_offset;                           // the offset of log blocks
     txn_id_t last_txn_id;                             // the last txn id
     std::map<block_id_t, std::vector<u8>> log_buffer; // the log buffer
 
