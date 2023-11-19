@@ -123,12 +123,14 @@ auto FileOperation::write_file(inode_id_t id, const std::vector<u8> &content)
       //    You should pay attention to the case of indirect block.
       //    You may use function `get_or_insert_indirect_block`
       //    in the case of indirect block.
+      std::cout << "new_block_num > old_block_num, Allocate block: " << idx << std::endl;
       auto block_id = this->block_allocator_->allocate();
       if (block_id.is_err()) {
         error_code = block_id.unwrap_error();
         goto err_ret;
       }
       if (inode_p->is_direct_block(idx)) {
+        std::cout << "set_block_direct: " << idx << std::endl;
         inode_p->set_block_direct(idx, block_id.unwrap());
       } else {
         auto res = inode_p->get_or_insert_indirect_block(
@@ -150,9 +152,11 @@ auto FileOperation::write_file(inode_id_t id, const std::vector<u8> &content)
     for (usize idx = new_block_num; idx < old_block_num; ++idx) {
       if (inode_p->is_direct_block(idx)) {
         // Free the direct extra block.
+        std::cout << "Free direct extra block: " << idx << std::endl;
         this->block_allocator_->deallocate((*inode_p)[idx]);
       } else {
         // Free the indirect extra block.
+        std::cout << "Free indirect extra block: " << idx << std::endl;
         this->block_allocator_->deallocate(
             reinterpret_cast<block_id_t *>(indirect_block.data())[idx - inlined_blocks_num]);
       }
@@ -162,6 +166,7 @@ auto FileOperation::write_file(inode_id_t id, const std::vector<u8> &content)
     if (old_block_num > inlined_blocks_num &&
         new_block_num <= inlined_blocks_num && true) {
 
+      std::cout << "Free indirect block: " << inode_p->get_indirect_block_id() << std::endl;
       auto res =
           this->block_allocator_->deallocate(inode_p->get_indirect_block_id());
       if (res.is_err()) {

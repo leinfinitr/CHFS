@@ -116,6 +116,7 @@ auto BlockAllocator::allocate() -> ChfsResult<block_id_t> {
       // 1. Set the free bit we found to 1 in the bitmap.
       Bitmap(buffer.data(), bm->block_size()).set(res.value());
       // 2. Flush the changed bitmap block back to the block manager.
+      std::cout << "write bitmap block: " << i + this->bitmap_block_id << std::endl;
       auto write_res = bm->write_block(i + this->bitmap_block_id, buffer.data());
       if (write_res.is_err()) {
         return ChfsResult<block_id_t>(ErrorType::INVALID);

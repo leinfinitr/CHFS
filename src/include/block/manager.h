@@ -108,6 +108,11 @@ namespace chfs
     virtual auto write_block_direct(block_id_t block_id, const u8 *data) -> ChfsNullResult;
 
     /**
+     * Clear log blocks
+    */
+    virtual auto clear_log_blocks() -> ChfsNullResult;
+
+    /**
      * Write a block to the internal block device.  This is a write-through one,
      * i.e., no cache.
      * @param block_id id of the block

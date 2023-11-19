@@ -179,6 +179,23 @@ namespace chfs
     return KNullOk;
   }
 
+  auto BlockManager::clear_log_blocks() -> ChfsNullResult
+  {
+    for(usize i = 0; i < this->log_block_num; i++)
+    {
+      this->zero_block(this->log_block_start + i);
+      std::vector<u8> init_data(this->block_sz);
+      for(usize j = 0; j < this->block_sz; j++)
+      {
+        init_data[j] = 0;
+      }
+      memcpy(this->block_data + (this->log_block_start + i) * this->block_sz, init_data.data(), this->block_sz);
+    }
+    this->log_block_cnt = 0;
+    this->log_block_offset = 0;
+    return KNullOk;
+  }
+
   auto BlockManager::write_block(block_id_t block_id, const u8 *data)
       -> ChfsNullResult
   {
@@ -234,9 +251,7 @@ namespace chfs
       memcpy(write_data.data() + offset, data, len);
       this->log_buffer[block_id] = write_data;
 
-      // std::cout << "Write log" << std::endl;
-      // std::cout << "block_id: " << block_id << std::endl;
-      // std::cout << "log entry num: " << this->log_buffer.size() << std::endl;
+      std::cout << "Write log: " << " block_id: " << block_id << " log buffer size: " << this->log_buffer.size() << std::endl;
     }
 
     // if (this->maybe_failed && block_id < this->block_cnt)

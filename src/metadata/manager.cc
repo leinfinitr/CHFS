@@ -98,6 +98,7 @@ auto InodeManager::allocate_inode(InodeType type, block_id_t bid)
       //    You may have to use the `RAW_2_LOGIC` macro
       //    to get the result inode id.
       inode_id_t inode_id = count * bm->block_size() * KBitsPerByte + free_idx.value();
+      std::cout << "write inode table: " << inode_id << std::endl;
       res = this->set_table(inode_id, bid);
       if (res.is_err()) {
         return ChfsResult<inode_id_t>(res.unwrap_error());
@@ -106,6 +107,7 @@ auto InodeManager::allocate_inode(InodeType type, block_id_t bid)
       Inode inode(type, bm->block_size());
       bm->read_block(bid, buffer.data());
       memcpy(buffer.data(), &inode, sizeof(Inode));
+      std::cout << "write inode block: " << bid << std::endl;
       res = bm->write_block(bid, buffer.data());
       if (res.is_err()) {
         return ChfsResult<inode_id_t>(res.unwrap_error());
