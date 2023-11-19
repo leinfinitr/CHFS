@@ -155,6 +155,7 @@ namespace chfs
     if(len > last_space){
       memcpy(block_data + (log_block_start + log_block_cnt) * block_sz + log_block_offset, log_block_data, last_space);
       log_block_offset = 0;
+      sync(this->log_block_start + this->log_block_cnt);
       log_block_cnt++;
       memcpy(block_data + (log_block_start + log_block_cnt) * block_sz, log_block_data + last_space, len - last_space);
       log_block_offset = len - last_space;
@@ -163,6 +164,7 @@ namespace chfs
       log_block_offset += len;
     }
     if(log_block_offset == block_sz){
+      sync(this->log_block_start + this->log_block_cnt);
       log_block_cnt++;
       log_block_offset = 0;
     }
