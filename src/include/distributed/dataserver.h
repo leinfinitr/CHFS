@@ -30,6 +30,7 @@ class DataServer {
 
 protected:
   const size_t num_worker_threads = 4; // worker threads for rpc handlers
+  const usize version_per_block = 4096 / sizeof(version_t);
 
   /**
    * The common logic in constructor

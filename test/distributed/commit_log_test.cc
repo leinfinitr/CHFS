@@ -73,9 +73,13 @@ TEST_F(CommitLogTest, CheckConcurrentUnlink) {
 
   auto mk_res = meta_srv->mknode(DirectoryType, 1, "dir");
   EXPECT_EQ(mk_res, 2);
+  auto dir_content = meta_srv->readdir(1);
+  EXPECT_EQ(dir_content.size(), 1);
 
   mk_res = meta_srv->mknode(DirectoryType, 1, "dir-2");
   EXPECT_EQ(mk_res, 3);
+    dir_content = meta_srv->readdir(1);
+    EXPECT_EQ(dir_content.size(), 2);
 
   bool is_started = false;
   std::thread t1([&]() {
@@ -98,7 +102,7 @@ TEST_F(CommitLogTest, CheckConcurrentUnlink) {
   t1.join();
   t2.join();
 
-  auto dir_content = meta_srv->readdir(1);
+  dir_content = meta_srv->readdir(1);
   EXPECT_EQ(dir_content.size(), 0);
 
   meta_srv->recover();

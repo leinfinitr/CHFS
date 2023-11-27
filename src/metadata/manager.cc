@@ -66,7 +66,6 @@ auto InodeManager::create_from_block_manager(std::shared_ptr<BlockManager> bm,
   return ChfsResult<InodeManager>(res);
 }
 
-// { Your code here }
 auto InodeManager::allocate_inode(InodeType type, block_id_t bid)
     -> ChfsResult<inode_id_t> {
   auto iter_res = BlockIterator::create(this->bm.get(), 1 + n_table_blocks,
@@ -86,7 +85,6 @@ auto InodeManager::allocate_inode(InodeType type, block_id_t bid)
 
     if (free_idx) {
       // If there is an available inode ID.
-
       // Setup the bitmap.
       bitmap.set(free_idx.value());
       auto res = iter.flush_cur_block();
@@ -94,26 +92,55 @@ auto InodeManager::allocate_inode(InodeType type, block_id_t bid)
         return ChfsResult<inode_id_t>(res.unwrap_error());
       }
 
-      // TODO:
       // 1. Initialize the inode with the given type.
       // 2. Setup the inode table.
       // 3. Return the id of the allocated inode.
       //    You may have to use the `RAW_2_LOGIC` macro
       //    to get the result inode id.
-      UNIMPLEMENTED();
+      inode_id_t inode_id = count * bm->block_size() * KBitsPerByte + free_idx.value();
+      std::cout << "write inode table: " << inode_id << std::endl;
+      res = this->set_table(inode_id, bid);
+      if (res.is_err()) {
+        return ChfsResult<inode_id_t>(res.unwrap_error());
+      }
+      std::vector<u8> buffer(bm->block_size());
+      Inode inode(type, bm->block_size());
+      bm->read_block(bid, buffer.data());
+      memcpy(buffer.data(), &inode, sizeof(Inode));
+      std::cout << "write inode block: " << bid << std::endl;
+      res = bm->write_block(bid, buffer.data());
+      if (res.is_err()) {
+        return ChfsResult<inode_id_t>(res.unwrap_error());
+      }
+      // printf("count: %lu\n", count);
+
+      return ChfsResult<inode_id_t>(RAW_2_LOGIC(inode_id));
     }
   }
 
   return ChfsResult<inode_id_t>(ErrorType::OUT_OF_RESOURCE);
 }
 
-// { Your code here }
 auto InodeManager::set_table(inode_id_t idx, block_id_t bid) -> ChfsNullResult {
 
-  // TODO: Implement this function.
   // Fill `bid` into the inode table entry
   // whose index is `idx`.
-  UNIMPLEMENTED();
+  if(idx >= max_inode_supported - 1) {
+    return ChfsNullResult(ErrorType::INVALID_ARG);
+  }
+  std::vector<u8> buffer(bm->block_size());
+  auto res = bm->read_block(1 + idx / (bm->block_size() / sizeof(block_id_t)),
+                            buffer.data());
+  if (res.is_err()) {
+    return ChfsNullResult(res.unwrap_error());
+  }
+  auto inode_table = reinterpret_cast<block_id_t *>(buffer.data());
+  inode_table[idx % (bm->block_size() / sizeof(block_id_t))] = bid;
+  res = bm->write_block(1 + idx / (bm->block_size() / sizeof(block_id_t)),
+                        buffer.data());
+  if (res.is_err()) {
+    return ChfsNullResult(res.unwrap_error());
+  }
 
   return KNullOk;
 }
@@ -127,7 +154,17 @@ auto InodeManager::get(inode_id_t id) -> ChfsResult<block_id_t> {
   // from the inode table. You may have to use
   // the macro `LOGIC_2_RAW` to get the inode
   // table index.
-  UNIMPLEMENTED();
+  if(id >= max_inode_supported - 1) {
+    return ChfsResult<block_id_t>(ErrorType::INVALID_ARG);
+  }
+  std::vector<u8> buffer(bm->block_size());
+  auto res = bm->read_block(1 + LOGIC_2_RAW(id) / (bm->block_size() / sizeof(block_id_t)),
+                            buffer.data());
+  if (res.is_err()) {
+    return ChfsResult<block_id_t>(res.unwrap_error());
+  }
+  auto inode_table = reinterpret_cast<block_id_t *>(buffer.data());
+  res_block_id = inode_table[LOGIC_2_RAW(id) % (bm->block_size() / sizeof(block_id_t))];
 
   return ChfsResult<block_id_t>(res_block_id);
 }
@@ -222,8 +259,24 @@ auto InodeManager::free_inode(inode_id_t id) -> ChfsNullResult {
   // 1. Clear the inode table entry.
   //    You may have to use macro `LOGIC_2_RAW`
   //    to get the index of inode table from `id`.
+  auto res = this->set_table(LOGIC_2_RAW(id), KInvalidBlockID);
+  if (res.is_err()) {
+    return ChfsNullResult(res.unwrap_error());
+  }
   // 2. Clear the inode bitmap.
-  UNIMPLEMENTED();
+  auto buffer = std::vector<u8>(bm->block_size());
+  res = bm->read_block(1 + n_table_blocks + LOGIC_2_RAW(id) / (bm->block_size() * KBitsPerByte),
+                       buffer.data());
+  if (res.is_err()) {
+    return ChfsNullResult(res.unwrap_error());
+  }
+  auto bitmap = Bitmap(buffer.data(), bm->block_size());
+  bitmap.clear(LOGIC_2_RAW(id) % (bm->block_size() * KBitsPerByte));
+  res = bm->write_block(1 + n_table_blocks + LOGIC_2_RAW(id) / (bm->block_size() * KBitsPerByte),
+                        buffer.data());
+  if (res.is_err()) {
+    return ChfsNullResult(res.unwrap_error());
+  }
 
   return KNullOk;
 }

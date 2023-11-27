@@ -151,9 +151,6 @@ void chfs_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
     read_size = size;
   }
 
-  // {Your code here}
-  // UNIMPLEMENTED();
-
   auto res = fs->read_file_w_off(ino, read_size, off);
   if (res.is_err()) {
     fuse_reply_err(req, -1);
