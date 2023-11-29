@@ -10,19 +10,25 @@ class RaftTestPart1: public RaftTest {};
 
 TEST_F(RaftTestPart1, LeaderElection)
 {
+  std::cout << "LeaderElection" << std::endl;
   InitNodes(3);
 
   mssleep(300);
+  std::cout << "CheckOneLeader" << std::endl;
   EXPECT_GE(CheckOneLeader(), 0);
 
   mssleep(200);
+  std::cout << "CheckSameTerm" << std::endl;
   int term1 = CheckSameTerm();
 
   mssleep(200);
+  std::cout << "CheckSameTerm" << std::endl;
   int term2 = CheckSameTerm();
 
   EXPECT_EQ(term1, term2) << "inconsistent term";
+  std::cout << "CheckOneLeader" << std::endl;
   EXPECT_GE(CheckOneLeader(), 0);
+  std::cout << "Finish LeaderElection" << std::endl;
 }
 
 TEST_F(RaftTestPart1, ReElection)
@@ -31,32 +37,41 @@ TEST_F(RaftTestPart1, ReElection)
 
   /* 1. check one leader */
   mssleep(300);
+  std::cout << "CheckOneLeader 1" << std::endl;
   int leader1 = CheckOneLeader();
 
   /* 2. stop the leader */
+  std::cout << "DisableNode 1" << std::endl;
   DisableNode(leader1);
   mssleep(1000);
 
+  std::cout << "CheckOneLeader 2" << std::endl;
   int leader2 = CheckOneLeader();
   EXPECT_EQ(leader1 != leader2, true) << "node " << leader2 << " shouldn't be the new leader";
 
   /* 3. stop the second leader */
+  std::cout << "DisableNode 2" << std::endl;
   DisableNode(leader2);
   mssleep(1000);
 
+  std::cout << "CheckOneLeader 3" << std::endl;
   int leader3 = CheckOneLeader();
   EXPECT_EQ(leader1 != leader3 && leader3 != leader2, true) << "node " << leader3 << " shouldn't be the new leader";
 
   /* 4. stop the third leader */
+  std::cout << "DisableNode 3" << std::endl;
   DisableNode(leader3);
   mssleep(1000);
 
   /* 5. only 2 nodes left with no leader */
+  std::cout << "CheckNoLeader 4" << std::endl;
   CheckNoLeader();
 
   /* 6. resume a node */
+  std::cout << "EnableNode" << std::endl;
   EnableNode(leader1);
   mssleep(1000);
+  std::cout << "CheckOneLeader 5" << std::endl;
   CheckOneLeader();
 }
 

@@ -18,7 +18,7 @@ namespace chfs
     class RaftLog
     {
     public:
-        RaftLog(std::shared_ptr<BlockManager> bm, int last_log_index, int last_log_term, std::vector<u8> entries);
+        RaftLog(std::shared_ptr<BlockManager> bm);
         RaftLog(const RaftLog &raft_log)
         {
             this->bm_ = raft_log.bm_;
@@ -43,16 +43,19 @@ namespace chfs
     };
 
     template <typename Command>
-    RaftLog<Command>::RaftLog(std::shared_ptr<BlockManager> bm, int last_log_index, int last_log_term, std::vector<u8> entries)
-        : bm_(bm), last_log_index_(last_log_index), last_log_term_(last_log_term), entries(entries)
+    RaftLog<Command>::RaftLog(std::shared_ptr<BlockManager> bm)
     {
         /* Lab3: Your code here */
+        bm_ = bm;
+        last_log_index_ = 0;
+        last_log_term_ = 0;
     }
 
     template <typename Command>
     RaftLog<Command>::~RaftLog()
     {
         /* Lab3: Your code here */
+        bm_.reset();
     }
 
     /* Lab3: Your code here */

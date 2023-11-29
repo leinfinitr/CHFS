@@ -80,20 +80,25 @@ public:
     prepare_environment("/tmp/raft_log");
     for (auto config: configs) {
       nodes.push_back(std::make_unique<RaftNode<ListStateMachine, ListCommand>>(config.node_id, configs));
+      std::cout << "Node " << config.node_id << " created" << std::endl;
       states.push_back(std::make_unique<ListStateMachine>());
       node_network_available.insert(std::make_pair(config.node_id, true));
     }
+    std::cout << "InitNodes: " << nodes.size() << std::endl;
 
     for (auto config: configs) {
       clients.push_back(std::make_unique<RpcClient>(config.ip_address, config.port, true));
     }
+    std::cout << "InitClients: " << clients.size() << std::endl;
 
     for (auto &&client: clients) {
       while (client->get_connection_state() != rpc::client::connection_state::connected) {
         sleep(1);
+        std::cout << "Client not connected" << std::endl;
       }
       
       /* Start Node */
+      std::cout << "Start Node" << std::endl;
       auto res = client->call(RAFT_RPC_START_NODE);
       EXPECT_EQ(res.is_ok(), true);
       EXPECT_EQ(res.unwrap()->as<int>(), 0);

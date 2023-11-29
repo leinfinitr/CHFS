@@ -47,16 +47,17 @@ namespace chfs
     class RaftNode
     {
 
-#define RAFT_LOG(fmt, args...)                                                                                                       \
-    do                                                                                                                               \
-    {                                                                                                                                \
-        auto now =                                                                                                                   \
-            std::chrono::duration_cast<std::chrono::milliseconds>(                                                                   \
-                std::chrono::system_clock::now().time_since_epoch())                                                                 \
-                .count();                                                                                                            \
-        char buf[512];                                                                                                               \
-        sprintf(buf, "[%ld][%s:%d][node %d term %d role %d] " fmt "\n", now, __FILE__, __LINE__, my_id, current_term, role, ##args); \
-        thread_pool->enqueue([=]() { std::cerr << buf; });                                                                           \
+#define RAFT_LOG(fmt, args...)                                                                                                            \
+    do                                                                                                                                    \
+    {                                                                                                                                     \
+        auto now =                                                                                                                        \
+            std::chrono::duration_cast<std::chrono::milliseconds>(                                                                        \
+                std::chrono::system_clock::now().time_since_epoch())                                                                      \
+                .count();                                                                                                                 \
+        char buf[512];                                                                                                                    \
+        /*sprintf(buf, "[%ld][%s:%d][node %d term %d role %d] " fmt "\n", now, __FILE__, __LINE__, my_id, current_term, role, ##args); */ \
+        sprintf(buf, "[%ld][node %d term %d role %d] " fmt "\n", now, my_id, current_term, role, ##args);                                 \
+        thread_pool->enqueue([=]() { std::cerr << buf; });                                                                                \
     } while (0);
 
     public:
@@ -215,17 +216,36 @@ namespace chfs
                          { return this->install_snapshot(arg); });
 
         /* Lab3: Your code here */
+        thread_pool = std::make_unique<ThreadPool>(4);
+        log_storage = std::make_unique<RaftLog<Command>>(nullptr);
+        state = std::make_unique<StateMachine>();
+        // Initialize rpc_clients_map
+        // RAFT_LOG("Node %d init rpc_clients_map", my_id);
+        for (auto config : node_configs)
+        {
+            // RAFT_LOG("Insert: %d, %s:%d", config.node_id, config.ip_address.c_str(), static_cast<int>(config.port));
+            rpc_clients_map[config.node_id] = std::make_unique<RpcClient>(config.ip_address, config.port, true);
+        }
+
+        // RAFT_LOG("Node %d init rpc_clients_map done", my_id);
+        rpc_server->run(true, 4); // MUST BE TRUE!
+        // RAFT_LOG("Node %d init rpc_server done", my_id);
     }
 
     template <typename StateMachine, typename Command>
     RaftNode<StateMachine, Command>::~RaftNode()
     {
+        // 不能加锁，否则会进入死循环
         stop();
 
         thread_pool.reset();
+        std::cout << "Node " << my_id << " thread_pool reset" << std::endl;
         rpc_server.reset();
+        std::cout << "Node " << my_id << " rpc_server reset" << std::endl;
         state.reset();
+        std::cout << "Node " << my_id << " state reset" << std::endl;
         log_storage.reset();
+        std::cout << "Node " << my_id << " destructed" << std::endl;
     }
 
     /******************************************************************
@@ -238,14 +258,10 @@ namespace chfs
     auto RaftNode<StateMachine, Command>::start() -> int
     {
         /* Lab3: Your code here */
-        if (!stopped.load())
-        {
-            return 0;
-        }
+        RAFT_LOG("Node %d start: config_size: %d, my_config: %d, %s:%d", my_id, static_cast<int>(node_configs.size()), my_id, node_configs[my_id].ip_address.c_str(), static_cast<int>(node_configs[my_id].port));
+        mtx.lock();
         stopped.store(false);
-
-        RAFT_LOG("Node start");
-        std::cout << "Node %d start" << my_id << std::endl;
+        mtx.unlock();
 
         background_election = std::make_unique<std::thread>(&RaftNode::run_background_election, this);
         background_ping = std::make_unique<std::thread>(&RaftNode::run_background_ping, this);
@@ -259,11 +275,22 @@ namespace chfs
     auto RaftNode<StateMachine, Command>::stop() -> int
     {
         /* Lab3: Your code here */
-        if (stopped.load())
-        {
-            return 0;
-        }
+        mtx.lock();
         stopped.store(true);
+        mtx.unlock();
+
+        // 等待所有子线程结束
+        // 否则在析构对象时会报错 terminate called without an active exception
+        RAFT_LOG("Node %d wait for background threads to join", my_id);
+        background_election->join();
+        std::cout << "Node " << my_id << " background_election joined" << std::endl;
+        background_ping->join();
+        std::cout << "Node " << my_id << " background_ping joined" << std::endl;
+        background_commit->join();
+        std::cout << "Node " << my_id << " background_commit joined" << std::endl;
+        background_apply->join();
+        std::cout << "Node " << my_id << " background_apply joined" << std::endl;
+
         return 0;
     }
 
@@ -318,25 +345,14 @@ namespace chfs
     auto RaftNode<StateMachine, Command>::request_vote(RequestVoteArgs args) -> RequestVoteReply
     {
         /* Lab3: Your code here */
+        RAFT_LOG("Node %d receive request vote from node %d", my_id, args.candidate_id);
         RequestVoteReply reply;
         // Reply false if term < currentTerm
-        mtx.lock();
 
-        if (args.term < current_term)
+        bool vote_granted = false;
+        if (args.term > current_term)
         {
-            reply.term = current_term;
-            reply.vote_granted = false;
-        }
-        else if (args.term > current_term)
-        {
-            current_term = args.term;
-            role = RaftRole::Follower;
-            leader_id = -1;
-            voted_for = args.candidate_id;
-            vote_count = 0;
-
-            reply.term = current_term;
-            reply.vote_granted = true;
+            vote_granted = true;
         }
         //  If votedFor is null or candidateId, and candidate’s log is at least as up - to - date as receiver’s log, grant vote
         else if (voted_for == -1 || voted_for == args.candidate_id)
@@ -344,36 +360,35 @@ namespace chfs
             // If the logs have last entries with different terms, then the log with the later term is more up-to-date.
             if (log_storage->last_log_term() < args.last_log_term)
             {
-                reply.term = current_term;
-                reply.vote_granted = true;
+                vote_granted = true;
             }
             else if (log_storage->last_log_term() == args.last_log_term)
             {
                 // If the logs end with the same term, then whichever log is longer is more up-to-date.
                 if (log_storage->last_log_index() <= args.last_log_index)
                 {
-                    reply.term = current_term;
-                    reply.vote_granted = true;
+                    vote_granted = true;
                 }
-                else
-                {
-                    reply.term = current_term;
-                    reply.vote_granted = false;
-                }
-            }
-            else
-            {
-                reply.term = current_term;
-                reply.vote_granted = false;
             }
         }
-        else
-        {
+
+        if(vote_granted){
+            mtx.lock();
+            current_term = args.term;
+            role = RaftRole::Follower;
+            leader_id = -1;
+            voted_for = args.candidate_id;
+            vote_count = 0;
+            mtx.unlock();
+
+            reply.term = current_term;
+            reply.vote_granted = true;
+        } else {
             reply.term = current_term;
             reply.vote_granted = false;
         }
 
-        mtx.unlock();
+        RAFT_LOG("Node %d reply request vote to node %d, term %d, vote_granted %d", my_id, args.candidate_id, reply.term, reply.vote_granted);
         return reply;
     }
 
@@ -381,7 +396,13 @@ namespace chfs
     void RaftNode<StateMachine, Command>::handle_request_vote_reply(int target, const RequestVoteArgs arg, const RequestVoteReply reply)
     {
         /* Lab3: Your code here */
-        mtx.lock();
+        RAFT_LOG("Node %d receive request vote reply from node %d, term %d, vote_granted %d", my_id, target, reply.term, reply.vote_granted);
+        std::unique_lock<std::mutex> lock(mtx);
+        // If role is not candidate, return
+        if (role != RaftRole::Candidate)
+        {
+            return;
+        }
         // If receive vote from majority of servers: become leader
         if (reply.vote_granted)
         {
@@ -393,6 +414,7 @@ namespace chfs
                 reset_vote();
 
                 // Sends heartbeat messages to all of the other servers to establish its authority and prevent new elections.
+                RAFT_LOG("Node %d become leader", my_id);
                 for (int i = 0; i < node_configs.size(); i++)
                 {
                     if (i != my_id)
@@ -404,9 +426,8 @@ namespace chfs
                         arg.prev_log_term = log_storage->last_log_term();
                         arg.leader_commit = commit_index;
 
-                        std::thread t([this, i, arg]()
-                                      { send_append_entries(i, arg); });
-                        t.detach();
+                        thread_pool->enqueue([this, i, arg]()
+                                             { send_append_entries(i, arg); });
                     }
                 }
             }
@@ -420,7 +441,6 @@ namespace chfs
             reset_vote();
         }
 
-        mtx.unlock();
         return;
     }
 
@@ -439,12 +459,15 @@ namespace chfs
         // If entries is empty, this is a heartbeat message
         if (rpc_arg.entries.size() == 0)
         {
+            RAFT_LOG("Node %d receive heartbeat from node %d", my_id, rpc_arg.leader_id);
             if (rpc_arg.term >= current_term)
             {
+                mtx.lock();
                 current_term = rpc_arg.term;
                 role = RaftRole::Follower;
                 leader_id = rpc_arg.leader_id;
                 reset_vote();
+                mtx.unlock();
 
                 reply.term = current_term;
                 reply.success = true;
@@ -467,10 +490,12 @@ namespace chfs
         {
             if (reply.term > current_term)
             {
+                mtx.lock();
                 current_term = reply.term;
                 role = RaftRole::Follower;
                 leader_id = -1;
                 reset_vote();
+                mtx.unlock();
             }
             return;
         }
@@ -495,8 +520,10 @@ namespace chfs
     void RaftNode<StateMachine, Command>::send_request_vote(int target_id, RequestVoteArgs arg)
     {
         std::unique_lock<std::mutex> clients_lock(clients_mtx);
+        RAFT_LOG("Send request vote to node %d", target_id)
         if (rpc_clients_map[target_id] == nullptr || rpc_clients_map[target_id]->get_connection_state() != rpc::client::connection_state::connected)
         {
+            RAFT_LOG("Node %d is not connected in send_request_vote", target_id);
             return;
         }
 
@@ -509,15 +536,18 @@ namespace chfs
         else
         {
             // RPC fails
+            RAFT_LOG("Node %d RPC fails", target_id);
         }
     }
 
     template <typename StateMachine, typename Command>
     void RaftNode<StateMachine, Command>::send_append_entries(int target_id, AppendEntriesArgs<Command> arg)
     {
+        RAFT_LOG("Send append entries to node %d", target_id);
         std::unique_lock<std::mutex> clients_lock(clients_mtx);
         if (rpc_clients_map[target_id] == nullptr || rpc_clients_map[target_id]->get_connection_state() != rpc::client::connection_state::connected)
         {
+            RAFT_LOG("Node %d is not connected in send_append_entries", target_id);
             return;
         }
 
@@ -567,8 +597,7 @@ namespace chfs
         // Work for followers and candidates.
 
         /* Uncomment following code when you finish */
-        RAFT_LOG("Run backgroung election");
-        std::cout << "Node %d run backgroung election" << my_id << std::endl;
+        RAFT_LOG("Node %d run background election", my_id);
         while (true)
         {
             if (is_stopped())
@@ -581,9 +610,12 @@ namespace chfs
                 // Periodly check the liveness of the leader.
                 // If the leader is dead, start a new election.
                 sleep(1);
+                if (is_stopped())
+                {
+                    return;
+                }
                 if (leader_id == -1 || rpc_clients_map[leader_id] == nullptr || rpc_clients_map[leader_id]->get_connection_state() != rpc::client::connection_state::connected)
                 {
-                    RAFT_LOG("Leader dead and start new election");
                     role = RaftRole::Candidate;
 
                     mtx.lock();
@@ -593,6 +625,7 @@ namespace chfs
                     election_timer = 0;
                     mtx.unlock();
 
+                    RAFT_LOG("Node %d start election", my_id);
                     // Issues RequestVote RPCs in parallel to each of the other servers in the cluster.
                     for (int i = 0; i < node_configs.size(); i++)
                     {
@@ -604,9 +637,8 @@ namespace chfs
                             arg.last_log_index = log_storage->last_log_index();
                             arg.last_log_term = log_storage->last_log_term();
 
-                            std::thread t([this, i, arg]()
-                                          { send_request_vote(i, arg); });
-                            t.detach();
+                            thread_pool->enqueue([this, i, arg]()
+                                                 { send_request_vote(i, arg); });
                         }
                     }
                 }
@@ -614,9 +646,11 @@ namespace chfs
             else if (role == RaftRole::Candidate)
             {
                 usleep(1000);
+                if (is_stopped())
+                {
+                    return;
+                }
                 election_timer++;
-                RAFT_LOG("Election timer: %d", election_timer);
-                std::cout << "Node %d election timer: %d" << my_id << election_timer << std::endl;
                 // If election timeout elapses: start new election
                 if (election_timer > election_timeout)
                 {
@@ -626,6 +660,8 @@ namespace chfs
                     vote_count = 1;
                     election_timer = 0;
                     mtx.unlock();
+
+                    RAFT_LOG("Node %d start new election", my_id);
                     for (int i = 0; i < node_configs.size(); i++)
                     {
                         if (i != my_id)
@@ -636,9 +672,8 @@ namespace chfs
                             arg.last_log_index = log_storage->last_log_index();
                             arg.last_log_term = log_storage->last_log_term();
 
-                            std::thread t([this, i, arg]()
-                                          { send_request_vote(i, arg); });
-                            t.detach();
+                            thread_pool->enqueue([this, i, arg]()
+                                                 { send_request_vote(i, arg); });
                         }
                     }
                 }
@@ -705,20 +740,25 @@ namespace chfs
             if (role == RaftRole::Leader)
             {
                 sleep(1);
+                if (is_stopped())
+                {
+                    return;
+                }
                 for (int i = 0; i < node_configs.size(); i++)
                 {
                     if (i != my_id)
                     {
                         AppendEntriesArgs<Command> arg;
+                        mtx.lock();
                         arg.term = current_term;
                         arg.leader_id = my_id;
                         arg.prev_log_index = log_storage->last_log_index();
                         arg.prev_log_term = log_storage->last_log_term();
                         arg.leader_commit = commit_index;
+                        mtx.unlock();
 
-                        std::thread t([this, i, arg]()
-                                      { send_append_entries(i, arg); });
-                        t.detach();
+                        thread_pool->enqueue([this, i, arg]()
+                                             { send_append_entries(i, arg); });
                     }
                 }
             }
