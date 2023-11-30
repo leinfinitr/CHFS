@@ -53,13 +53,13 @@ namespace chfs
          */
         std::vector<Entry<Command>> log_entries;
 
-        int last_log_index();
-        int last_log_term();
+        int last_log_index() const;
+        int last_log_term() const;
         void append_log(int term, Command cmd);
 
     private:
         std::shared_ptr<BlockManager> bm_;
-        std::mutex mtx;
+        mutable std::mutex mtx;
         /* Lab3: Your code here */
     };
 
@@ -70,7 +70,7 @@ namespace chfs
      * @return The index of the last log.
     */
     template <typename Command>
-    int RaftLog<Command>::last_log_index()
+    int RaftLog<Command>::last_log_index() const
     {
         std::unique_lock<std::mutex> lock(mtx);
         return log_entries.size() - 1;
@@ -81,7 +81,7 @@ namespace chfs
      * @return The term of the last log.
     */
     template <typename Command>
-    int RaftLog<Command>::last_log_term()
+    int RaftLog<Command>::last_log_term() const
     {
         std::unique_lock<std::mutex> lock(mtx);
         return log_entries[log_entries.size() - 1].term;

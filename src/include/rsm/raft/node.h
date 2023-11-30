@@ -154,8 +154,13 @@ namespace chfs
         int last_ping_timer; /* The number of ticks since the last receiverd heartbeat */
         int ping_timeout;    /* Chosen a fixed interval to check the liveness of the leader */
 
+        // Volatile state on all servers:
         int commit_index; /* Index of highest log entry known to be committed (initialized to 0, increases monotonically) */
         int last_applied; /* Index of highest log entry applied to state machine (initialized to 0, increases monotonically) */
+
+        // Volatile state on leaders:
+        std::vector<int> next_index;  /* For each server, index of the next log entry to send to that server (initialized to leader last log index + 1) */
+        std::vector<int> match_index; /* For each server, index of highest log entry known to be replicated on server (initialized to 0, increases monotonically) */
 
         std::unique_ptr<std::thread> background_election;
         std::unique_ptr<std::thread> background_ping;
@@ -230,6 +235,13 @@ namespace chfs
         {
             RAFT_LOG("Insert: %d, %s:%d", config.node_id, config.ip_address.c_str(), static_cast<int>(config.port));
             rpc_clients_map[config.node_id] = std::make_unique<RpcClient>(config.ip_address, config.port, true);
+        }
+        // Initialize next_index and match_index
+        // RAFT_LOG("Node %d init next_index and match_index", my_id);
+        for (int i = 0; i < node_configs.size(); i++)
+        {
+            next_index.push_back(log_storage->last_log_index() + 1);
+            match_index.push_back(0);
         }
 
         // RAFT_LOG("Node %d init rpc_clients_map done", my_id);
@@ -334,6 +346,7 @@ namespace chfs
         cmd.deserialize(cmd_data, cmd_size);
         log_storage->append_log(current_term, cmd);
         state->apply_log(cmd);
+        RAFT_LOG("Node %d append log, term %d, index %d, data %d", my_id, current_term, log_storage->last_log_index(), cmd.value);
         return std::make_tuple(true, current_term, log_storage->last_log_index());
     }
 
@@ -542,6 +555,9 @@ namespace chfs
             {
                 commit_index = std::min(rpc_arg.leader_commit, log_storage->last_log_index());
             }
+
+            reply.term = current_term;
+            reply.success = true;
         }
 
         return reply;
@@ -551,9 +567,13 @@ namespace chfs
     void RaftNode<StateMachine, Command>::handle_append_entries_reply(int node_id, const AppendEntriesArgs<Command> arg, const AppendEntriesReply reply)
     {
         /* Lab3: Your code here */
-        // If log_entries.size() <= 1, this is a heartbeat message
         // It should only work for leader
-        if (arg.log_storage.log_entries.size() <= 1)
+        if (role != RaftRole::Leader)
+        {
+            return;
+        }
+        // If log_entries.size() <= 1, this is a heartbeat message
+        if (arg.log_entries.size() <= 1)
         {
             if (reply.term > current_term)
             {
@@ -567,7 +587,65 @@ namespace chfs
             }
             return;
         }
-        return;
+        else
+        {
+            if (reply.term > current_term)
+            {
+                mtx.lock();
+                current_term = reply.term;
+                role = RaftRole::Follower;
+                leader_id = -1;
+                reset_counter();
+                voted_for = -1;
+                mtx.unlock();
+                return;
+            }
+            if (reply.success)
+            {
+                // If successful: update nextIndex and matchIndex for follower
+                // If there exists an N such that N > commitIndex, a majority
+                // of matchIndex[i] ≥ N, and log[N].term == currentTerm:
+                // set commitIndex = N
+                next_index[node_id] = arg.prev_log_index + arg.log_entries.size() + 1;
+                match_index[node_id] = arg.prev_log_index + arg.log_entries.size();
+                int N = commit_index + 1;
+                while (N <= log_storage->last_log_index())
+                {
+                    int count = 1;
+                    for (int i = 0; i < node_configs.size(); i++)
+                    {
+                        if (i != my_id && match_index[i] >= N)
+                        {
+                            count++;
+                        }
+                    }
+                    if (count > node_configs.size() / 2 && log_storage->log_entries[N].term == current_term)
+                    {
+                        commit_index = N;
+                    }
+                    N++;
+                }
+            } // If AppendEntries fails because of log inconsistency: decrement nextIndex and retry
+            else
+            {
+                next_index[node_id]--;
+                AppendEntriesArgs<Command> arg;
+                arg.term = current_term;
+                arg.leader_id = my_id;
+                arg.prev_log_index = next_index[node_id] - 1;
+                arg.prev_log_term = log_storage->log_entries[arg.prev_log_index].term;
+                arg.leader_commit = commit_index;
+
+                // Construct log_entries which contains the logs after prev_log_index
+                std::vector<Entry<Command>> log_entries;
+                log_entries.assign(log_storage->log_entries.begin() + arg.prev_log_index + 1, log_storage->log_entries.end());
+                arg.log_entries = log_entries;
+
+                RAFT_LOG("Node %d send append entries to node %d in handle_append_entries_reply", my_id, node_id);
+                thread_pool->enqueue([this, node_id, arg]()
+                                     { send_append_entries(node_id, arg); });
+            }
+        }
     }
 
     template <typename StateMachine, typename Command>
@@ -783,13 +861,19 @@ namespace chfs
                 arg.prev_log_index = log_storage->last_log_index();
                 arg.prev_log_term = log_storage->last_log_term();
                 arg.leader_commit = commit_index;
-
                 mtx.unlock();
+
+                // If last log index ≥ nextIndex for a follower: send AppendEntries RPC with log entries starting at nextIndex
                 for (int i = 0; i < node_configs.size(); i++)
                 {
-                    if (i != my_id)
+                    if (i != my_id && next_index[i] <= log_storage->last_log_index())
                     {
-                        RAFT_LOG("Node %d send logs to node %d in run_background_commit", my_id, i);
+                        // Construct log_entries which contains the logs starting at next_index
+                        std::vector<Entry<Command>> log_entries;
+                        log_entries.assign(log_storage->log_entries.begin() + next_index[i], log_storage->log_entries.end());
+                        arg.log_entries = log_entries;
+
+                        RAFT_LOG("Node %d send append entries to node %d in run_background_commit", my_id, i);
                         thread_pool->enqueue([this, i, arg]()
                                              { send_append_entries(i, arg); });
                     }
@@ -914,6 +998,18 @@ namespace chfs
                 }
 
                 rpc_clients_map[node_id] = std::make_unique<RpcClient>(target_config.ip_address, target_config.port, true);
+                // Check rpc state
+                // if (rpc_clients_map[node_id]->get_connection_state() != rpc::client::connection_state::connected)
+                // {
+                //     RAFT_LOG("Node %d is not connected in set_network", node_id);
+                // } else {
+                //     RAFT_LOG("Node %d is connected in set_network", node_id);
+                // }
+                while (rpc_clients_map[node_id]->get_connection_state() != rpc::client::connection_state::connected)
+                {
+                    RAFT_LOG("Node %d is not connected in set_network", node_id);
+                    usleep(10000);
+                }
             }
 
             if (!node_status && rpc_clients_map[node_id] != nullptr)

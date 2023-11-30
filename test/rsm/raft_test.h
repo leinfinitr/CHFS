@@ -230,10 +230,14 @@ namespace chfs
       return -1;
     }
 
+    /**
+     * @brief 计算已经提交的节点数
+    */
     int NumCommitted(int log_idx)
     {
       int cnt = 0;
       int old_value = 0;
+      // 遍历所有节点
       for (size_t i = 0; i < configs.size(); i++)
       {
         bool has_log;
@@ -241,6 +245,8 @@ namespace chfs
 
         auto snapshot = nodes[i]->get_snapshot_direct();
 
+        // 在 Machine 中存储 snapshot
+        std::cout << "snapshot: " << snapshot.size() << std::endl;
         std::unique_lock<std::mutex> lock(mtx);
         states[i]->apply_snapshot(snapshot);
 
@@ -250,6 +256,7 @@ namespace chfs
         // }
         // std::cerr << std::endl;
 
+        std::cout << "store size: " << states[i]->store.size() << " log_idx: " << log_idx << std::endl;
         if (static_cast<int>(states[i]->store.size()) > log_idx)
         {
           log_value = states[i]->store[log_idx];
@@ -262,6 +269,8 @@ namespace chfs
 
         lock.unlock();
 
+        std::cout << "has_log: " << has_log << std::endl;
+        // 当 Machine 中 store.size() > log_idx
         if (has_log)
         {
           cnt++;
@@ -273,14 +282,17 @@ namespace chfs
           {
             EXPECT_EQ(old_value, log_value) << "node " << i << " has inconsistent log value: (" << log_value << ", " << old_value << ") at idx " << log_idx;
           }
+          std::cout << "cnt: " << cnt << " old_value: " << old_value << " log_value: " << log_value << std::endl;
         }
       }
 
+      std::cout << "NumCommitted: " << cnt << std::endl;
       return cnt;
     }
 
     int AppendNewCommand(int value, int expected_nodes)
     {
+      std::cout << "AppendNewCommand: value = " << value << " expected_nodes = " << expected_nodes << std::endl;
       ListCommand cmd(value);
       auto start = std::chrono::system_clock::now();
       auto end = start + std::chrono::seconds(3 * retry_time + rand() % 15);
@@ -290,11 +302,14 @@ namespace chfs
         int log_idx = -1;
         for (size_t i = 0; i < configs.size(); i++)
         {
+          // 不断循环直到出现 leader
           leader_idx = (leader_idx + 1) % configs.size();
 
           if (!node_network_available[leader_idx])
             continue;
 
+          std::cout << "AppendNewCommand: leader_idx = " << leader_idx << " i = " << i << std::endl;
+          // 如果是 leader 则向其发送新的命令
           auto res2 = clients[leader_idx]->call(RAFT_RPC_NEW_COMMEND, cmd.serialize(cmd.size()), cmd.size());
           auto ret2 = res2.unwrap()->as<std::tuple<bool, int, int>>();
 
@@ -303,8 +318,10 @@ namespace chfs
           int temp_idx;
           std::tie(is_leader, temp_term, temp_idx) = ret2;
 
+          std::cout << "AppendNewCommand: is_leader = " << is_leader << " temp_term = " << temp_term << " temp_idx = " << temp_idx << std::endl;
           if (is_leader)
           {
+            // 发送命令后更新 log_idx，而后跳出循环
             log_idx = temp_idx;
             break;
           }
@@ -315,7 +332,9 @@ namespace chfs
           auto check_start = std::chrono::system_clock::now();
           while (std::chrono::system_clock::now() < check_start + std::chrono::seconds(2))
           {
+            std::cout << "AppendNewCommand: log_idx = " << log_idx << std::endl;
             int committed_nodes = NumCommitted(log_idx);
+            std::cout << "AppendNewCommand: committed_nodes = " << committed_nodes << " expected_nodes = " << expected_nodes << std::endl;
             if (committed_nodes >= expected_nodes)
             {
               /* The log is committed */

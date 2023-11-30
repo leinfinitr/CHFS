@@ -48,12 +48,12 @@ namespace chfs
     struct AppendEntriesArgs
     {
         /* Lab3: Your code here */
-        int term;                              // leader's term
-        int leader_id;                         // so follower can redirect clients
-        int prev_log_index;                    // index of log entry immediately preceding new ones
-        int prev_log_term;                     // term of prevLogIndex entry
-        int leader_commit;                     // leader's commitIndex
-        RaftLog<Command> log_storage;       // log entries to store (empty for heartbeat; may send more than one for efficiency)
+        int term;                                // leader's term
+        int leader_id;                           // so follower can redirect clients
+        int prev_log_index;                      // index of log entry immediately preceding new ones
+        int prev_log_term;                       // term of prevLogIndex entry
+        int leader_commit;                       // leader's commitIndex
+        std::vector<Entry<Command>> log_entries; // log entries to store (empty for heartbeat; may send more than one for efficiency)
     };
 
     struct RpcAppendEntriesArgs
@@ -85,12 +85,12 @@ namespace chfs
         rpc_arg.prev_log_index = arg.prev_log_index;
         rpc_arg.prev_log_term = arg.prev_log_term;
         rpc_arg.leader_commit = arg.leader_commit;
-        std::vector<u8> entries; 
+        std::vector<u8> entries;
         bool jump_first = false; // Jump the first empty log entry
-        // std::cout << "arg.log_storage.log_entries.size() = " << arg.log_storage.log_entries.size() << std::endl;
-        for (const Entry<Command> &cmd_entry : arg.log_storage.log_entries)
+        // std::cout << "arg.log_entries.size() = " << arg.log_entries.size() << std::endl;
+        for (const Entry<Command> &cmd_entry : arg.log_entries)
         {
-            if(!jump_first)
+            if (!jump_first)
             {
                 jump_first = true;
                 continue;
@@ -120,7 +120,7 @@ namespace chfs
             Command cmd_entry;
             std::vector<u8> entry(entries.begin() + i, entries.begin() + i + cmd_entry.size());
             cmd_entry.deserialize(entry, cmd_entry.size());
-            arg.log_storage.log_entries.push_back(Entry<Command>(arg.term, cmd_entry));
+            arg.log_entries.push_back(Entry<Command>(arg.term, cmd_entry));
             i += cmd_entry.size();
         }
 
