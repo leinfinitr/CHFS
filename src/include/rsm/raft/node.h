@@ -286,7 +286,7 @@ namespace chfs
 
         // 等待所有子线程结束
         // 否则在析构对象时会报错 terminate called without an active exception
-        // RAFT_LOG("Node %d wait for background threads to join", my_id);
+        RAFT_LOG("Node %d wait for background threads to join", my_id);
         background_election->join();
         // std::cout << "Node " << my_id << " background_election joined" << std::endl;
         background_ping->join();
@@ -303,6 +303,7 @@ namespace chfs
     auto RaftNode<StateMachine, Command>::is_leader() -> std::tuple<bool, int>
     {
         /* Lab3: Your code here */
+        RAFT_LOG("Node %d check leader", my_id);
         if (role == RaftRole::Leader)
         {
             return std::make_tuple(true, current_term);
@@ -394,6 +395,7 @@ namespace chfs
             role = RaftRole::Follower;
             leader_id = -1;
             reset_counter();
+            voted_for = args.candidate_id;
             mtx.unlock();
 
             reply.term = current_term;
@@ -443,6 +445,7 @@ namespace chfs
                         arg.prev_log_term = log_storage->last_log_term();
                         arg.leader_commit = commit_index;
 
+                        RAFT_LOG("Node %d send heartbeat to node %d in handle_request_vote_reply", my_id, i);
                         thread_pool->enqueue([this, i, arg]()
                                              { send_append_entries(i, arg); });
                     }
@@ -499,7 +502,9 @@ namespace chfs
                 reply.term = current_term;
                 reply.success = true;
                 return reply;
-            } else {
+            }
+            else
+            {
                 reply.term = current_term;
                 reply.success = false;
                 return reply;
@@ -546,9 +551,9 @@ namespace chfs
     void RaftNode<StateMachine, Command>::handle_append_entries_reply(int node_id, const AppendEntriesArgs<Command> arg, const AppendEntriesReply reply)
     {
         /* Lab3: Your code here */
-        // If entries is empty, this is a heartbeat message
+        // If log_entries.size() <= 1, this is a heartbeat message
         // It should only work for leader
-        if (arg.log_storage.log_entries.size() == 0)
+        if (arg.log_storage.log_entries.size() <= 1)
         {
             if (reply.term > current_term)
             {
@@ -670,6 +675,7 @@ namespace chfs
         RAFT_LOG("Node %d run background election", my_id);
         while (true)
         {
+            usleep(1000);
             if (is_stopped())
             {
                 return;
@@ -679,11 +685,6 @@ namespace chfs
             {
                 // Periodly check the liveness of the leader.
                 // If the leader is dead, start a new election.
-                usleep(1000);
-                if (is_stopped())
-                {
-                    return;
-                }
                 if (last_ping_timer < ping_timeout)
                 {
                     last_ping_timer++;
@@ -721,11 +722,6 @@ namespace chfs
             }
             else if (role == RaftRole::Candidate)
             {
-                usleep(1000);
-                if (is_stopped())
-                {
-                    return;
-                }
                 election_timer++;
                 // If election timeout elapses: start new election
                 if (election_timer > election_timeout)
@@ -779,7 +775,7 @@ namespace chfs
             }
             else
             {
-                RAFT_LOG("Node %d send logs to followers", my_id);
+                RAFT_LOG("Node %d send logs to followers in run_background_commit", my_id);
                 AppendEntriesArgs<Command> arg;
                 mtx.lock();
                 arg.term = current_term;
@@ -793,6 +789,7 @@ namespace chfs
                 {
                     if (i != my_id)
                     {
+                        RAFT_LOG("Node %d send logs to node %d in run_background_commit", my_id, i);
                         thread_pool->enqueue([this, i, arg]()
                                              { send_append_entries(i, arg); });
                     }
@@ -847,6 +844,7 @@ namespace chfs
         /* Uncomment following code when you finish */
         while (true)
         {
+            usleep(100000);
             if (is_stopped())
             {
                 return;
@@ -854,11 +852,6 @@ namespace chfs
             /* Lab3: Your code here */
             if (role == RaftRole::Leader)
             {
-                usleep(100000);
-                if (is_stopped())
-                {
-                    return;
-                }
                 for (int i = 0; i < node_configs.size(); i++)
                 {
                     if (i != my_id)
@@ -872,6 +865,7 @@ namespace chfs
                         arg.leader_commit = commit_index;
                         mtx.unlock();
 
+                        RAFT_LOG("Node %d send heartbeat to node %d in run_background_ping", my_id, i);
                         thread_pool->enqueue([this, i, arg]()
                                              { send_append_entries(i, arg); });
                     }

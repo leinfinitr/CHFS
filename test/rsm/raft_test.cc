@@ -73,6 +73,7 @@ TEST_F(RaftTestPart1, ReElection)
   mssleep(1000);
   std::cout << "CheckOneLeader 5" << std::endl;
   CheckOneLeader();
+  std::cout << "Finish ReElection" << std::endl;
 }
 
 class RaftTestPart2: public RaftTest {};
