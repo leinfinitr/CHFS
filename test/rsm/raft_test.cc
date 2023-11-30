@@ -41,7 +41,7 @@ TEST_F(RaftTestPart1, ReElection)
   int leader1 = CheckOneLeader();
 
   /* 2. stop the leader */
-  std::cout << "DisableNode 1" << std::endl;
+  std::cout << "DisableNode 1: " << leader1 << std::endl;
   DisableNode(leader1);
   mssleep(1000);
 
@@ -50,7 +50,7 @@ TEST_F(RaftTestPart1, ReElection)
   EXPECT_EQ(leader1 != leader2, true) << "node " << leader2 << " shouldn't be the new leader";
 
   /* 3. stop the second leader */
-  std::cout << "DisableNode 2" << std::endl;
+  std::cout << "DisableNode 2: " << leader2 << std::endl;
   DisableNode(leader2);
   mssleep(1000);
 
@@ -59,7 +59,7 @@ TEST_F(RaftTestPart1, ReElection)
   EXPECT_EQ(leader1 != leader3 && leader3 != leader2, true) << "node " << leader3 << " shouldn't be the new leader";
 
   /* 4. stop the third leader */
-  std::cout << "DisableNode 3" << std::endl;
+  std::cout << "DisableNode 3: " << leader3 << std::endl;
   DisableNode(leader3);
   mssleep(1000);
 
@@ -68,7 +68,7 @@ TEST_F(RaftTestPart1, ReElection)
   CheckNoLeader();
 
   /* 6. resume a node */
-  std::cout << "EnableNode" << std::endl;
+  std::cout << "EnableNode: " << leader1 << std::endl;
   EnableNode(leader1);
   mssleep(1000);
   std::cout << "CheckOneLeader 5" << std::endl;

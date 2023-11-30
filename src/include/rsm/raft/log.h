@@ -9,6 +9,13 @@
 
 namespace chfs
 {
+    template <typename Command>
+    struct Entry
+    {
+        int term;
+        Command cmd;
+    };
+
     /**
      * RaftLog uses a BlockManager to manage the data.
      * RaftLog will persist the Raft log and metadata.
@@ -18,46 +25,78 @@ namespace chfs
     class RaftLog
     {
     public:
-        RaftLog(std::shared_ptr<BlockManager> bm);
+        RaftLog()
+        {
+            log_entries.push_back(Entry<Command>());
+        }
+        RaftLog(std::shared_ptr<BlockManager> bm)
+        {
+            bm_ = bm;
+            log_entries.push_back(Entry<Command>());
+        }
         RaftLog(const RaftLog &raft_log)
         {
             this->bm_ = raft_log.bm_;
-            this->last_log_index_ = raft_log.last_log_index_;
-            this->last_log_term_ = raft_log.last_log_term_;
-            this->entries = raft_log.entries;
+            this->log_entries = raft_log.log_entries;
         }
-        ~RaftLog();
+        ~RaftLog()
+        {
+            bm_.reset();
+        }
 
         /* Lab3: Your code here */
-        std::vector<u8> entries; // log entries to store
 
-        int last_log_index() const { return last_log_index_; }
-        int last_log_term() const { return last_log_term_; }
+        /**
+         * Notice that the first log index is 1 instead of 0. 
+         * We need to append an empty log entry to the logs at the very beginning. 
+         * And since the 'lastApplied' index starts from 0, the first empty log entry will never be applied to the state machine.
+         */
+        std::vector<Entry<Command>> log_entries;
+
+        int last_log_index();
+        int last_log_term();
+        void append_log(int term, Command cmd);
 
     private:
         std::shared_ptr<BlockManager> bm_;
         std::mutex mtx;
         /* Lab3: Your code here */
-        int last_log_index_; // index of last log entry
-        int last_log_term_;  // term of last log entry
     };
 
-    template <typename Command>
-    RaftLog<Command>::RaftLog(std::shared_ptr<BlockManager> bm)
-    {
-        /* Lab3: Your code here */
-        bm_ = bm;
-        last_log_index_ = 0;
-        last_log_term_ = 0;
-    }
-
-    template <typename Command>
-    RaftLog<Command>::~RaftLog()
-    {
-        /* Lab3: Your code here */
-        bm_.reset();
-    }
-
     /* Lab3: Your code here */
+
+    /**
+     * Get the index of the last log.
+     * @return The index of the last log.
+    */
+    template <typename Command>
+    int RaftLog<Command>::last_log_index()
+    {
+        std::unique_lock<std::mutex> lock(mtx);
+        return log_entries.size() - 1;
+    }
+
+    /**
+     * Get the term of the last log.
+     * @return The term of the last log.
+    */
+    template <typename Command>
+    int RaftLog<Command>::last_log_term()
+    {
+        std::unique_lock<std::mutex> lock(mtx);
+        return log_entries[log_entries.size() - 1].term;
+    }
+
+    /**
+     * Append a log to the RaftLog.
+     * @param term The term of the log.
+     * @param value The value of the log.
+    */
+    template <typename Command>
+    void RaftLog<Command>::append_log(int term, Command cmd)
+    {
+        std::unique_lock<std::mutex> lock(mtx);
+        log_entries.push_back(Entry<Command>{term, cmd});
+    }
 
 } /* namespace chfs */

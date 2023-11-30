@@ -151,6 +151,9 @@ namespace chfs
         int election_timer;   /* The number of ticks since the last election timeout */
         int election_timeout; /* Chosen randomly from a fixed interval to ensure that split votes are rare */
 
+        int last_ping_timer; /* The number of ticks since the last receiverd heartbeat */
+        int ping_timeout;    /* Chosen a fixed interval to check the liveness of the leader */
+
         int commit_index; /* Index of highest log entry known to be committed (initialized to 0, increases monotonically) */
         int last_applied; /* Index of highest log entry applied to state machine (initialized to 0, increases monotonically) */
 
@@ -162,13 +165,13 @@ namespace chfs
         /* Lab3: Your code here */
 
         /**
-         * Reset the vote_for = -1, vote_count = 0, election_timer = 0.
+         * Reset the vote_count = 0, election_timer = 0, last_ping_timer = 0
          */
-        void reset_vote()
+        void reset_counter()
         {
-            voted_for = -1;
             vote_count = 0;
             election_timer = 0;
+            last_ping_timer = 0;
         }
     };
 
@@ -184,6 +187,8 @@ namespace chfs
                                                                                                   vote_count(0),
                                                                                                   election_timer(0),
                                                                                                   election_timeout(rand() % 150 + 150),
+                                                                                                  last_ping_timer(0),
+                                                                                                  ping_timeout(1000),
                                                                                                   commit_index(0),
                                                                                                   last_applied(0)
     {
@@ -223,13 +228,13 @@ namespace chfs
         // RAFT_LOG("Node %d init rpc_clients_map", my_id);
         for (auto config : node_configs)
         {
-            // RAFT_LOG("Insert: %d, %s:%d", config.node_id, config.ip_address.c_str(), static_cast<int>(config.port));
+            RAFT_LOG("Insert: %d, %s:%d", config.node_id, config.ip_address.c_str(), static_cast<int>(config.port));
             rpc_clients_map[config.node_id] = std::make_unique<RpcClient>(config.ip_address, config.port, true);
         }
 
         // RAFT_LOG("Node %d init rpc_clients_map done", my_id);
-        rpc_server->run(true, 4); // MUST BE TRUE!
-        // RAFT_LOG("Node %d init rpc_server done", my_id);
+        rpc_server->run(true, 8); // MUST BE TRUE!
+        RAFT_LOG("Node %d init rpc_server done", my_id);
     }
 
     template <typename StateMachine, typename Command>
@@ -239,11 +244,11 @@ namespace chfs
         stop();
 
         thread_pool.reset();
-        std::cout << "Node " << my_id << " thread_pool reset" << std::endl;
+        // std::cout << "Node " << my_id << " thread_pool reset" << std::endl;
         rpc_server.reset();
-        std::cout << "Node " << my_id << " rpc_server reset" << std::endl;
+        // std::cout << "Node " << my_id << " rpc_server reset" << std::endl;
         state.reset();
-        std::cout << "Node " << my_id << " state reset" << std::endl;
+        // std::cout << "Node " << my_id << " state reset" << std::endl;
         log_storage.reset();
         std::cout << "Node " << my_id << " destructed" << std::endl;
     }
@@ -281,13 +286,13 @@ namespace chfs
 
         // 等待所有子线程结束
         // 否则在析构对象时会报错 terminate called without an active exception
-        RAFT_LOG("Node %d wait for background threads to join", my_id);
+        // RAFT_LOG("Node %d wait for background threads to join", my_id);
         background_election->join();
-        std::cout << "Node " << my_id << " background_election joined" << std::endl;
+        // std::cout << "Node " << my_id << " background_election joined" << std::endl;
         background_ping->join();
-        std::cout << "Node " << my_id << " background_ping joined" << std::endl;
+        // std::cout << "Node " << my_id << " background_ping joined" << std::endl;
         background_commit->join();
-        std::cout << "Node " << my_id << " background_commit joined" << std::endl;
+        // std::cout << "Node " << my_id << " background_commit joined" << std::endl;
         background_apply->join();
         std::cout << "Node " << my_id << " background_apply joined" << std::endl;
 
@@ -318,7 +323,17 @@ namespace chfs
     auto RaftNode<StateMachine, Command>::new_command(std::vector<u8> cmd_data, int cmd_size) -> std::tuple<bool, int, int>
     {
         /* Lab3: Your code here */
-        return std::make_tuple(false, -1, -1);
+        // Only work for leader
+        // Append entry to local log, respond after entry applied to state machine
+        if (role != RaftRole::Leader)
+        {
+            return std::make_tuple(false, current_term, -1);
+        }
+        Command cmd;
+        cmd.deserialize(cmd_data, cmd_size);
+        log_storage->append_log(current_term, cmd);
+        state->apply_log(cmd);
+        return std::make_tuple(true, current_term, log_storage->last_log_index());
     }
 
     template <typename StateMachine, typename Command>
@@ -372,18 +387,20 @@ namespace chfs
             }
         }
 
-        if(vote_granted){
+        if (vote_granted)
+        {
             mtx.lock();
             current_term = args.term;
             role = RaftRole::Follower;
             leader_id = -1;
-            voted_for = args.candidate_id;
-            vote_count = 0;
+            reset_counter();
             mtx.unlock();
 
             reply.term = current_term;
             reply.vote_granted = true;
-        } else {
+        }
+        else
+        {
             reply.term = current_term;
             reply.vote_granted = false;
         }
@@ -411,7 +428,7 @@ namespace chfs
             {
                 role = RaftRole::Leader;
                 leader_id = my_id;
-                reset_vote();
+                election_timer = 0;
 
                 // Sends heartbeat messages to all of the other servers to establish its authority and prevent new elections.
                 RAFT_LOG("Node %d become leader", my_id);
@@ -438,7 +455,8 @@ namespace chfs
         {
             current_term = reply.term;
             role = RaftRole::Follower;
-            reset_vote();
+            reset_counter();
+            voted_for = -1;
         }
 
         return;
@@ -450,6 +468,14 @@ namespace chfs
         /* Lab3: Your code here */
         AppendEntriesReply reply;
 
+        // Reply false if term < currentTerm
+        if (rpc_arg.term < current_term)
+        {
+            reply.term = current_term;
+            reply.success = false;
+            return reply;
+        }
+
         /**
          * While waiting for votes, a candidate may receive an AppendEntries RPC from another server claiming to be leader.
          * If the leader’s term (included in its RPC) is at least as large as the candidate’s current term, then the candidate recognizes the leader as legitimate and returns to follower state.
@@ -460,24 +486,59 @@ namespace chfs
         if (rpc_arg.entries.size() == 0)
         {
             RAFT_LOG("Node %d receive heartbeat from node %d", my_id, rpc_arg.leader_id);
+
             if (rpc_arg.term >= current_term)
             {
                 mtx.lock();
                 current_term = rpc_arg.term;
                 role = RaftRole::Follower;
                 leader_id = rpc_arg.leader_id;
-                reset_vote();
+                reset_counter();
                 mtx.unlock();
 
                 reply.term = current_term;
                 reply.success = true;
+                return reply;
+            } else {
+                reply.term = current_term;
+                reply.success = false;
+                return reply;
             }
-            else
+        }
+        else
+        {
+            // Reply false if log doesn’t contain an entry at prevLogIndex whose term matches prevLogTerm
+            if ((log_storage->last_log_index() < rpc_arg.prev_log_index) ||
+                (log_storage->last_log_index() == rpc_arg.prev_log_index && log_storage->last_log_term() != rpc_arg.prev_log_term))
             {
                 reply.term = current_term;
                 reply.success = false;
+                return reply;
+            }
+            // If an existing entry conflicts with a new one (same index but different terms), delete the existing entry and all that follow it
+            while (log_storage->last_log_index() > rpc_arg.prev_log_index)
+            {
+                log_storage->log_entries.pop_back();
+            }
+            // To this step, we can ensure all logs before prev_log_index are the same as the leader's
+            // Append any new entries not already in the log
+            int i = 0;
+            while (i < rpc_arg.entries.size())
+            {
+                Command cmd_entry;
+                std::vector<u8> entry(rpc_arg.entries.begin() + i, rpc_arg.entries.begin() + i + cmd_entry.size());
+                cmd_entry.deserialize(entry, cmd_entry.size());
+                log_storage->append_log(rpc_arg.term, cmd_entry);
+                // state->apply_log(cmd_entry);
+                i += cmd_entry.size();
+            }
+            // If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry)
+            if (rpc_arg.leader_commit > commit_index)
+            {
+                commit_index = std::min(rpc_arg.leader_commit, log_storage->last_log_index());
             }
         }
+
         return reply;
     }
 
@@ -486,7 +547,8 @@ namespace chfs
     {
         /* Lab3: Your code here */
         // If entries is empty, this is a heartbeat message
-        if (arg.entries.size() == 0)
+        // It should only work for leader
+        if (arg.log_storage.log_entries.size() == 0)
         {
             if (reply.term > current_term)
             {
@@ -494,7 +556,8 @@ namespace chfs
                 current_term = reply.term;
                 role = RaftRole::Follower;
                 leader_id = -1;
-                reset_vote();
+                reset_counter();
+                voted_for = -1;
                 mtx.unlock();
             }
             return;
@@ -521,7 +584,13 @@ namespace chfs
     {
         std::unique_lock<std::mutex> clients_lock(clients_mtx);
         RAFT_LOG("Send request vote to node %d", target_id)
-        if (rpc_clients_map[target_id] == nullptr || rpc_clients_map[target_id]->get_connection_state() != rpc::client::connection_state::connected)
+
+        if (rpc_clients_map[target_id] == nullptr)
+        {
+            RAFT_LOG("Node %d is nullptr in send_request_vote", target_id);
+            return;
+        }
+        else if (rpc_clients_map[target_id]->get_connection_state() != rpc::client::connection_state::connected)
         {
             RAFT_LOG("Node %d is not connected in send_request_vote", target_id);
             return;
@@ -561,6 +630,7 @@ namespace chfs
         else
         {
             // RPC fails
+            RAFT_LOG("Node %d RPC fails in send_append_entries", target_id);
         }
     }
 
@@ -609,11 +679,17 @@ namespace chfs
             {
                 // Periodly check the liveness of the leader.
                 // If the leader is dead, start a new election.
-                sleep(1);
+                usleep(1000);
                 if (is_stopped())
                 {
                     return;
                 }
+                if (last_ping_timer < ping_timeout)
+                {
+                    last_ping_timer++;
+                    continue;
+                }
+                last_ping_timer = 0;
                 if (leader_id == -1 || rpc_clients_map[leader_id] == nullptr || rpc_clients_map[leader_id]->get_connection_state() != rpc::client::connection_state::connected)
                 {
                     role = RaftRole::Candidate;
@@ -666,11 +742,13 @@ namespace chfs
                     {
                         if (i != my_id)
                         {
+                            mtx.lock();
                             RequestVoteArgs arg;
                             arg.term = current_term;
                             arg.candidate_id = my_id;
                             arg.last_log_index = log_storage->last_log_index();
                             arg.last_log_term = log_storage->last_log_term();
+                            mtx.unlock();
 
                             thread_pool->enqueue([this, i, arg]()
                                                  { send_request_vote(i, arg); });
@@ -686,18 +764,41 @@ namespace chfs
     void RaftNode<StateMachine, Command>::run_background_commit()
     {
         // Periodly send logs to the follower.
-
         // Only work for the leader.
-
         /* Uncomment following code when you finish */
-        // while (true) {
-        //     {
-        //         if (is_stopped()) {
-        //             return;
-        //         }
-        //         /* Lab3: Your code here */
-        //     }
-        // }
+        while (true)
+        {
+            usleep(100000);
+            if (is_stopped())
+            {
+                return;
+            }
+            if (role != RaftRole::Leader)
+            {
+                continue;
+            }
+            else
+            {
+                RAFT_LOG("Node %d send logs to followers", my_id);
+                AppendEntriesArgs<Command> arg;
+                mtx.lock();
+                arg.term = current_term;
+                arg.leader_id = my_id;
+                arg.prev_log_index = log_storage->last_log_index();
+                arg.prev_log_term = log_storage->last_log_term();
+                arg.leader_commit = commit_index;
+
+                mtx.unlock();
+                for (int i = 0; i < node_configs.size(); i++)
+                {
+                    if (i != my_id)
+                    {
+                        thread_pool->enqueue([this, i, arg]()
+                                             { send_append_entries(i, arg); });
+                    }
+                }
+            }
+        }
 
         return;
     }
@@ -706,18 +807,33 @@ namespace chfs
     void RaftNode<StateMachine, Command>::run_background_apply()
     {
         // Periodly apply committed logs the state machine
-
         // Work for all the nodes.
 
         /* Uncomment following code when you finish */
-        // while (true) {
-        //     {
-        //         if (is_stopped()) {
-        //             return;
-        //         }
-        //         /* Lab3: Your code here */
-        //     }
-        // }
+        while (true)
+        {
+            usleep(100000);
+            if (is_stopped())
+            {
+                return;
+            }
+            if (last_applied == commit_index)
+            {
+                continue;
+            }
+            else
+            {
+                RAFT_LOG("Node %d apply logs to state machine", my_id);
+                mtx.lock();
+                last_applied = commit_index;
+                mtx.unlock();
+                for (int i = last_applied + 1; i <= commit_index; i++)
+                {
+                    Command cmd_entry = log_storage->log_entries[i].cmd;
+                    state->apply_log(cmd_entry);
+                }
+            }
+        }
 
         return;
     }
@@ -726,7 +842,6 @@ namespace chfs
     void RaftNode<StateMachine, Command>::run_background_ping()
     {
         // Periodly send empty append_entries RPC to the followers.
-
         // Only work for the leader.
 
         /* Uncomment following code when you finish */
@@ -739,7 +854,7 @@ namespace chfs
             /* Lab3: Your code here */
             if (role == RaftRole::Leader)
             {
-                sleep(1);
+                usleep(100000);
                 if (is_stopped())
                 {
                     return;

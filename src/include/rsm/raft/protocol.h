@@ -53,7 +53,7 @@ namespace chfs
         int prev_log_index;                    // index of log entry immediately preceding new ones
         int prev_log_term;                     // term of prevLogIndex entry
         int leader_commit;                     // leader's commitIndex
-        std::vector<RaftLog<Command>> entries; // log entries to store (empty for heartbeat; may send more than one for efficiency)
+        RaftLog<Command> log_storage;       // log entries to store (empty for heartbeat; may send more than one for efficiency)
     };
 
     struct RpcAppendEntriesArgs
@@ -85,12 +85,21 @@ namespace chfs
         rpc_arg.prev_log_index = arg.prev_log_index;
         rpc_arg.prev_log_term = arg.prev_log_term;
         rpc_arg.leader_commit = arg.leader_commit;
-        std::vector<u8> entries;
-        for (const RaftLog<Command> &entry : arg.entries)
+        std::vector<u8> entries; 
+        bool jump_first = false; // Jump the first empty log entry
+        // std::cout << "arg.log_storage.log_entries.size() = " << arg.log_storage.log_entries.size() << std::endl;
+        for (const Entry<Command> &cmd_entry : arg.log_storage.log_entries)
         {
-            entries.insert(entries.end(), entry.entries.begin(), entry.entries.end());
+            if(!jump_first)
+            {
+                jump_first = true;
+                continue;
+            }
+            std::vector<u8> cmd_entry_data = cmd_entry.cmd.serialize(cmd_entry.cmd.size());
+            entries.insert(entries.end(), cmd_entry_data.begin(), cmd_entry_data.end());
         }
         rpc_arg.entries = entries;
+        // std::cout << "rpc_arg.entries.size() = " << rpc_arg.entries.size() << std::endl;
         return rpc_arg;
     }
 
@@ -104,7 +113,16 @@ namespace chfs
         arg.prev_log_index = rpc_arg.prev_log_index;
         arg.prev_log_term = rpc_arg.prev_log_term;
         arg.leader_commit = rpc_arg.leader_commit;
-        arg.entries.insert(arg.entries.end(), rpc_arg.entries.begin(), rpc_arg.entries.end());
+        std::vector<u8> entries = rpc_arg.entries;
+        int i = 0;
+        while (i < entries.size())
+        {
+            Command cmd_entry;
+            std::vector<u8> entry(entries.begin() + i, entries.begin() + i + cmd_entry.size());
+            cmd_entry.deserialize(entry, cmd_entry.size());
+            arg.log_storage.log_entries.push_back(Entry<Command>(arg.term, cmd_entry));
+            i += cmd_entry.size();
+        }
 
         return arg;
     }
