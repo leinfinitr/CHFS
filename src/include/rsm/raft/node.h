@@ -193,7 +193,7 @@ namespace chfs
                                                                                                   election_timer(0),
                                                                                                   election_timeout(rand() % 150 + 150),
                                                                                                   last_ping_timer(0),
-                                                                                                  ping_timeout(1000),
+                                                                                                  ping_timeout(rand() % 200 + 500),
                                                                                                   commit_index(0),
                                                                                                   last_applied(0)
     {
@@ -231,12 +231,12 @@ namespace chfs
         state = std::make_unique<StateMachine>();
         // Initialize rpc_clients_map
         // RAFT_LOG("Node %d init rpc_clients_map", my_id);
-        for (auto config : node_configs)
-        {
-            RAFT_LOG("Insert: %d, %s:%d", config.node_id, config.ip_address.c_str(), static_cast<int>(config.port));
-            rpc_clients_map[config.node_id] = std::make_unique<RpcClient>(config.ip_address, config.port, true);
-        }
-        // Initialize next_index and match_index
+        // for (auto config : node_configs)
+        // {
+        //     RAFT_LOG("Insert: %d, %s:%d", config.node_id, config.ip_address.c_str(), static_cast<int>(config.port));
+        //     rpc_clients_map[config.node_id] = std::make_unique<RpcClient>(config.ip_address, config.port, true);
+        // }
+        // // Initialize next_index and match_index
         // RAFT_LOG("Node %d init next_index and match_index", my_id);
         for (int i = 0; i < node_configs.size(); i++)
         {
@@ -245,7 +245,7 @@ namespace chfs
         }
 
         // RAFT_LOG("Node %d init rpc_clients_map done", my_id);
-        rpc_server->run(true, 8); // MUST BE TRUE!
+        rpc_server->run(true, 4); // MUST BE TRUE!
         RAFT_LOG("Node %d init rpc_server done", my_id);
     }
 
@@ -278,6 +278,12 @@ namespace chfs
         RAFT_LOG("Node %d start: config_size: %d, my_config: %d, %s:%d", my_id, static_cast<int>(node_configs.size()), my_id, node_configs[my_id].ip_address.c_str(), static_cast<int>(node_configs[my_id].port));
         mtx.lock();
         stopped.store(false);
+        // 在 start 中初始化 rpc_clients_map 防止在构造函数中初始化时无法连接到其他 node
+        for (auto config : node_configs)
+        {
+            RAFT_LOG("Insert: %d, %s:%d", config.node_id, config.ip_address.c_str(), static_cast<int>(config.port));
+            rpc_clients_map[config.node_id] = std::make_unique<RpcClient>(config.ip_address, config.port, true);
+        }
         mtx.unlock();
 
         background_election = std::make_unique<std::thread>(&RaftNode::run_background_election, this);
@@ -374,17 +380,26 @@ namespace chfs
     auto RaftNode<StateMachine, Command>::request_vote(RequestVoteArgs args) -> RequestVoteReply
     {
         /* Lab3: Your code here */
+        // It should only work for follower and candidate
+        if (role == RaftRole::Leader)
+        {
+            RequestVoteReply reply;
+            reply.term = current_term;
+            reply.vote_granted = false;
+            return reply;
+        }
+
         RAFT_LOG("Node %d receive request vote from node %d", my_id, args.candidate_id);
         RequestVoteReply reply;
-        // Reply false if term < currentTerm
-
         bool vote_granted = false;
-        if (args.term > current_term)
+
+        // Reply false if term < currentTerm
+        if (args.term < current_term)
         {
-            vote_granted = true;
+            vote_granted = false;
         }
         //  If votedFor is null or candidateId, and candidate’s log is at least as up - to - date as receiver’s log, grant vote
-        else if (voted_for == -1 || voted_for == args.candidate_id)
+        else if (voted_for == -1 || voted_for == args.candidate_id || args.term > current_term)
         {
             // If the logs have last entries with different terms, then the log with the later term is more up-to-date.
             if (log_storage->last_log_term() < args.last_log_term)
@@ -400,6 +415,30 @@ namespace chfs
                 }
             }
         }
+        // 这一段完全是因为在测试的时候会出现无法连接的情况
+        // 比如对于 3 个 node，2 掉线之后， 0 开始新的 election 但在 send_request_vote 中无法连接到 1，无法获得 1 的投票
+        // 但是 1 可以连接到 0，却由于 0 已经给自己投票了，所以无法给 1 投票
+        // 且每次新的 election 0 都在 1 的前面
+        // 从而出现无论循环多少次都不会出现新的 leader 的情况
+        // 因此添加这段代码用于解决这种情况
+        // 可以将其理解为投票中的 “自谦” 行为
+        // -- 即一旦别人要求我投票，此时如果我是给自己投票的，那么放弃这张选票，给别人投票
+        // -- 但是仍然保持自己是 candidate 的状态，因为我仍然希望能够成为 leader
+        // else if (voted_for == my_id)
+        // {
+        //     if ((log_storage->last_log_term() < args.last_log_term) || ((log_storage->last_log_term() == args.last_log_term) && (log_storage->last_log_index() <= args.last_log_index)))
+        //     {
+        //         mtx.lock();
+        //         voted_for = args.candidate_id;
+        //         vote_count--;
+        //         mtx.unlock();
+
+        //         reply.term = current_term;
+        //         reply.vote_granted = true;
+        //         RAFT_LOG("Node %d transfer vote to node %d", my_id, args.candidate_id);
+        //         return reply;
+        //     }
+        // }
 
         if (vote_granted)
         {
@@ -471,6 +510,7 @@ namespace chfs
         {
             current_term = reply.term;
             role = RaftRole::Follower;
+            leader_id = -1;
             reset_counter();
             voted_for = -1;
         }
@@ -483,7 +523,7 @@ namespace chfs
     {
         /* Lab3: Your code here */
         AppendEntriesReply reply;
-
+        
         // Reply false if term < currentTerm
         if (rpc_arg.term < current_term)
         {
@@ -528,26 +568,35 @@ namespace chfs
             RAFT_LOG("Node %d receive append entries from node %d", my_id, rpc_arg.leader_id);
             RAFT_LOG("prev_log_index: %d, prev_log_term: %d", rpc_arg.prev_log_index, rpc_arg.prev_log_term);
             // Reply false if log doesn’t contain an entry at prevLogIndex whose term matches prevLogTerm
-            if ((log_storage->last_log_index() < rpc_arg.prev_log_index) ||
-                (log_storage->last_log_index() == rpc_arg.prev_log_index && log_storage->last_log_term() != rpc_arg.prev_log_term))
+            if (log_storage->last_log_index() < rpc_arg.prev_log_index)
             {
                 reply.term = current_term;
                 reply.success = false;
                 return reply;
             }
             // If an existing entry conflicts with a new one (same index but different terms), delete the existing entry and all that follow it
-            while (log_storage->last_log_index() > rpc_arg.prev_log_index)
+            // And then append any new entries not already in the log
+            // 到这一步可以保证 log_storage->last_log_index() >= rpc_arg.prev_log_index
+            int check_end_index = rpc_arg.prev_log_index + 1; // The index of the last log to check whether it is the same as the leader's
+            for (; check_end_index <= log_storage->last_log_index(); check_end_index++)
             {
-                log_storage->log_entries.pop_back();
+                if ((check_end_index - rpc_arg.prev_log_index - 1) >= rpc_arg.command_value.size() ||
+                    log_storage->log_entries[check_end_index].term != rpc_arg.entry_term[check_end_index - rpc_arg.prev_log_index - 1])
+                {
+                    log_storage->log_entries.erase(log_storage->log_entries.begin() + check_end_index, log_storage->log_entries.end());
+                    break;
+                }
             }
-            // To this step, we can ensure all logs before prev_log_index are the same as the leader's
-            // Append any new entries not already in the log
-            RAFT_LOG("Node %d append entries, term %d, index %d, size %d", my_id, rpc_arg.term, log_storage->last_log_index() + 1, int(rpc_arg.command_value.size()));
-            for (int i = 0; i < rpc_arg.command_value.size(); i++)
+
+            // To this step, we can ensure all logs before check_end_index are the same as the leader's
+            RAFT_LOG("Node %d append entries, term %d, index %d, size %d %d", my_id, rpc_arg.term, check_end_index, int(rpc_arg.command_value.size()), int(rpc_arg.entry_term.size()));
+            for (int i = check_end_index - rpc_arg.prev_log_index - 1; i < rpc_arg.command_value.size(); i++)
             {
                 Command cmd;
                 cmd.value = rpc_arg.command_value[i];
-                log_storage->append_log(rpc_arg.term, cmd);
+                int tmp = rpc_arg.entry_term[i];
+                RAFT_LOG("append log: i %d, index %d, term %d, data %d", i, check_end_index + i, tmp, cmd.value);
+                log_storage->append_log(rpc_arg.entry_term[i], cmd);
                 state->apply_log(cmd);
             }
             // If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry)
@@ -701,7 +750,12 @@ namespace chfs
     {
         // RAFT_LOG("Send append entries to node %d", target_id);
         std::unique_lock<std::mutex> clients_lock(clients_mtx);
-        if (rpc_clients_map[target_id] == nullptr || rpc_clients_map[target_id]->get_connection_state() != rpc::client::connection_state::connected)
+        if (rpc_clients_map[target_id] == nullptr)
+        {
+            RAFT_LOG("Node %d is nullptr in send_append_entries", target_id);
+            return;
+        }
+        else if (rpc_clients_map[target_id]->get_connection_state() != rpc::client::connection_state::connected)
         {
             RAFT_LOG("Node %d is not connected in send_append_entries", target_id);
             return;
@@ -862,8 +916,9 @@ namespace chfs
                 mtx.lock();
                 arg.term = current_term;
                 arg.leader_id = my_id;
-                arg.prev_log_index = log_storage->prev_log_index();
-                arg.prev_log_term = log_storage->prev_log_term();
+                // prev_log_index 应该是要处理的第一个日志的前一个日志的索引，而不是 leader 的最后一个日志的索引
+                // arg.prev_log_index = log_storage->prev_log_index();
+                // arg.prev_log_term = log_storage->prev_log_term();
                 arg.leader_commit = commit_index;
                 mtx.unlock();
 
@@ -876,6 +931,9 @@ namespace chfs
                         std::vector<Entry<Command>> log_entries;
                         log_entries.assign(log_storage->log_entries.begin() + next_index[i], log_storage->log_entries.end());
                         arg.log_entries = log_entries;
+
+                        arg.prev_log_index = next_index[i] - 1;
+                        arg.prev_log_term = log_storage->log_entries[arg.prev_log_index].term;
 
                         RAFT_LOG("Node %d send append entries to node %d in run_background_commit, next_index = %d, last_log_index = %d, log_entries.size() = %d", my_id, i, next_index[i], log_storage->last_log_index(), int(arg.log_entries.size()));
                         thread_pool->enqueue([this, i, arg]()
@@ -911,12 +969,12 @@ namespace chfs
                 RAFT_LOG("Node %d apply logs to state machine", my_id);
                 mtx.lock();
                 last_applied = commit_index;
-                mtx.unlock();
                 for (int i = last_applied + 1; i <= commit_index; i++)
                 {
                     Command cmd_entry = log_storage->log_entries[i].cmd;
                     state->apply_log(cmd_entry);
                 }
+                mtx.unlock();
             }
         }
 

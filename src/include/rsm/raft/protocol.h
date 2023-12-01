@@ -75,7 +75,7 @@ namespace chfs
             prev_log_term,
             leader_commit,
             command_value,
-            term)
+            entry_term)
     };
 
     template <typename Command>
@@ -94,7 +94,7 @@ namespace chfs
             rpc_arg.command_value.push_back(cmd_entry.cmd.value);
             rpc_arg.entry_term.push_back(cmd_entry.term);
         }
-        // std::cout << "rpc_arg.entries.size() = " << rpc_arg.entries.size() << std::endl;
+        // std::cout << "rpc_arg.command_value.size() = " << rpc_arg.command_value.size() << " rpc_arg.entry_term.size() = " << rpc_arg.entry_term.size() << std::endl;
         return rpc_arg;
     }
 

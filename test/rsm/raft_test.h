@@ -146,10 +146,9 @@ namespace chfs
             continue;
           }
 
-          std::cout << "CheckOneLeader: " << j << std::endl;
           auto res2 = clients[j]->call(RAFT_RPC_CHECK_LEADER);
           std::tuple<bool, int> flag_term = res2.unwrap()->as<std::tuple<bool, int>>();
-          std::cout << "CheckOneLeader: " << std::get<0>(flag_term) << " " << std::get<1>(flag_term) << std::endl;
+          std::cout << "CheckOneLeader: j: " << j << " result: " << std::get<0>(flag_term) << " " << std::get<1>(flag_term) << std::endl;
           if (std::get<0>(flag_term))
           {
             int term = std::get<1>(flag_term);
@@ -290,6 +289,9 @@ namespace chfs
       return cnt;
     }
 
+    /**
+     * @brief 向 leader 发送新的命令，等待被 expected_nodes 个节点 commit 后返回 log_idx
+    */
     int AppendNewCommand(int value, int expected_nodes)
     {
       std::cout << "AppendNewCommand: value = " << value << " expected_nodes = " << expected_nodes << std::endl;
