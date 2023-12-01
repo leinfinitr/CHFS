@@ -242,6 +242,7 @@ namespace chfs
         bool has_log;
         int log_value;
 
+        // 得到 node[i] 的 snapshot
         auto snapshot = nodes[i]->get_snapshot_direct();
 
         // 在 Machine 中存储 snapshot
@@ -400,7 +401,7 @@ namespace chfs
     void DisableNode(int node_id)
     {
       node_network_available[node_id] = false;
-      // std::cerr << "  Node " << node_id << " disabled" << std::endl;
+      std::cout << "Node " << node_id << " disabled" << std::endl;
       for (auto &&node : nodes)
       {
         node->set_network(node_network_available);
@@ -410,7 +411,7 @@ namespace chfs
     void EnableNode(int node_id)
     {
       node_network_available[node_id] = true;
-      // std::cerr << "  Node " << node_id << " enabled" << std::endl;
+      std::cout << "Node " << node_id << " enabled" << std::endl;
       for (auto &&node : nodes)
       {
         node->set_network(node_network_available);

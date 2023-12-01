@@ -129,6 +129,9 @@ namespace chfs
         /* Data structures */
         bool network_stat; /* for test */
 
+        // 需要访问 rpc_clients_map 时使用 clients_mtx
+        // 其余情况使用 mtx
+        // 先对 clients_mtx 上锁，再对 mtx 上锁
         std::mutex mtx;                                /* A big lock to protect the whole data structure. */
         std::mutex clients_mtx;                        /* A lock to protect RpcClient pointers */
         std::unique_ptr<ThreadPool> thread_pool;       /* A thread pool to run the background workers. */
@@ -193,7 +196,7 @@ namespace chfs
                                                                                                   election_timer(0),
                                                                                                   election_timeout(rand() % 150 + 150),
                                                                                                   last_ping_timer(0),
-                                                                                                  ping_timeout(rand() % 200 + 500),
+                                                                                                  ping_timeout(1000),
                                                                                                   commit_index(0),
                                                                                                   last_applied(0)
     {
@@ -351,7 +354,9 @@ namespace chfs
         Command cmd;
         cmd.deserialize(cmd_data, cmd_size);
         log_storage->append_log(current_term, cmd);
-        state->apply_log(cmd);
+        // When more than half of the nodes have responded, the leader can consider the log entry to be committed.
+        // Which will be processed in run_background_commit, run_background_apply and handle_append_entries_reply
+
         RAFT_LOG("Node %d append log, term %d, index %d, data %d", my_id, current_term, log_storage->last_log_index(), cmd.value);
         return std::make_tuple(true, current_term, log_storage->last_log_index());
     }
@@ -380,14 +385,17 @@ namespace chfs
     auto RaftNode<StateMachine, Command>::request_vote(RequestVoteArgs args) -> RequestVoteReply
     {
         /* Lab3: Your code here */
+        // args.term > current_term 即使是 leader 也可以投票
+        // args.term == current_term, leader 一定会给自己投票
+        // 因此下面代码无意义
         // It should only work for follower and candidate
-        if (role == RaftRole::Leader)
-        {
-            RequestVoteReply reply;
-            reply.term = current_term;
-            reply.vote_granted = false;
-            return reply;
-        }
+        // if (role == RaftRole::Leader)
+        // {
+        //     RequestVoteReply reply;
+        //     reply.term = current_term;
+        //     reply.vote_granted = false;
+        //     return reply;
+        // }
 
         RAFT_LOG("Node %d receive request vote from node %d", my_id, args.candidate_id);
         RequestVoteReply reply;
@@ -468,7 +476,18 @@ namespace chfs
     {
         /* Lab3: Your code here */
         RAFT_LOG("Node %d receive request vote reply from node %d, term %d, vote_granted %d", my_id, target, reply.term, reply.vote_granted);
-        std::unique_lock<std::mutex> lock(mtx);
+        // If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower
+        if (reply.term > current_term)
+        {
+            mtx.lock();
+            current_term = reply.term;
+            role = RaftRole::Follower;
+            leader_id = -1;
+            reset_counter();
+            voted_for = -1;
+            mtx.unlock();
+            return;
+        }
         // If role is not candidate, return
         if (role != RaftRole::Candidate)
         {
@@ -505,15 +524,6 @@ namespace chfs
             }
             return;
         }
-        // If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower
-        if (reply.term > current_term)
-        {
-            current_term = reply.term;
-            role = RaftRole::Follower;
-            leader_id = -1;
-            reset_counter();
-            voted_for = -1;
-        }
 
         return;
     }
@@ -523,13 +533,26 @@ namespace chfs
     {
         /* Lab3: Your code here */
         AppendEntriesReply reply;
-        
+
         // Reply false if term < currentTerm
         if (rpc_arg.term < current_term)
         {
             reply.term = current_term;
             reply.success = false;
             return reply;
+        } else {
+            mtx.lock();
+            current_term = rpc_arg.term;
+            role = RaftRole::Follower;
+            leader_id = rpc_arg.leader_id;
+            reset_counter();
+
+            // If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry)
+            if (rpc_arg.leader_commit > commit_index)
+            {
+                commit_index = std::min(rpc_arg.leader_commit, log_storage->last_log_index());
+            }
+            mtx.unlock();
         }
 
         /**
@@ -542,26 +565,9 @@ namespace chfs
         if (rpc_arg.command_value.size() == 0)
         {
             RAFT_LOG("Node %d receive heartbeat from node %d", my_id, rpc_arg.leader_id);
-
-            if (rpc_arg.term >= current_term)
-            {
-                mtx.lock();
-                current_term = rpc_arg.term;
-                role = RaftRole::Follower;
-                leader_id = rpc_arg.leader_id;
-                reset_counter();
-                mtx.unlock();
-
-                reply.term = current_term;
-                reply.success = true;
-                return reply;
-            }
-            else
-            {
-                reply.term = current_term;
-                reply.success = false;
-                return reply;
-            }
+            reply.term = current_term;
+            reply.success = true;
+            return reply;
         }
         else
         {
@@ -597,12 +603,6 @@ namespace chfs
                 int tmp = rpc_arg.entry_term[i];
                 RAFT_LOG("append log: i %d, index %d, term %d, data %d", i, check_end_index + i, tmp, cmd.value);
                 log_storage->append_log(rpc_arg.entry_term[i], cmd);
-                state->apply_log(cmd);
-            }
-            // If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry)
-            if (rpc_arg.leader_commit > commit_index)
-            {
-                commit_index = std::min(rpc_arg.leader_commit, log_storage->last_log_index());
             }
 
             reply.term = current_term;
@@ -616,6 +616,18 @@ namespace chfs
     void RaftNode<StateMachine, Command>::handle_append_entries_reply(int node_id, const AppendEntriesArgs<Command> arg, const AppendEntriesReply reply)
     {
         /* Lab3: Your code here */
+        // If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower
+        if (reply.term > current_term)
+        {
+            mtx.lock();
+            current_term = reply.term;
+            role = RaftRole::Follower;
+            leader_id = -1;
+            reset_counter();
+            voted_for = -1;
+            mtx.unlock();
+            return;
+        }
         // It should only work for leader
         if (role != RaftRole::Leader)
         {
@@ -624,31 +636,10 @@ namespace chfs
         // If log_entries.size() == 0, this is a heartbeat message
         if (arg.log_entries.size() == 0)
         {
-            if (reply.term > current_term)
-            {
-                mtx.lock();
-                current_term = reply.term;
-                role = RaftRole::Follower;
-                leader_id = -1;
-                reset_counter();
-                voted_for = -1;
-                mtx.unlock();
-            }
             return;
         }
         else
         {
-            if (reply.term > current_term)
-            {
-                mtx.lock();
-                current_term = reply.term;
-                role = RaftRole::Follower;
-                leader_id = -1;
-                reset_counter();
-                voted_for = -1;
-                mtx.unlock();
-                return;
-            }
             if (reply.success)
             {
                 // If successful: update nextIndex and matchIndex for follower
@@ -675,10 +666,13 @@ namespace chfs
                     }
                     N++;
                 }
+                RAFT_LOG("Update next_index and match_index for node %d, next_index %d, match_index %d", node_id, next_index[node_id], match_index[node_id]);
+                RAFT_LOG("Update commit_index %d", commit_index)
                 mtx.unlock();
-            } // If AppendEntries fails because of log inconsistency: decrement nextIndex and retry
+            }
             else
             {
+                // If AppendEntries fails because of log inconsistency: decrement nextIndex and retry
                 mtx.lock();
                 next_index[node_id]--;
                 AppendEntriesArgs<Command> arg;
@@ -712,6 +706,18 @@ namespace chfs
     void RaftNode<StateMachine, Command>::handle_install_snapshot_reply(int node_id, const InstallSnapshotArgs arg, const InstallSnapshotReply reply)
     {
         /* Lab3: Your code here */
+        // // If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower
+        // if (reply.term > current_term)
+        // {
+        //     mtx.lock();
+        //     current_term = reply.term;
+        //     role = RaftRole::Follower;
+        //     leader_id = -1;
+        //     reset_counter();
+        //     voted_for = -1;
+        //     mtx.unlock();
+        //     return;
+        // }
         return;
     }
 
@@ -935,7 +941,8 @@ namespace chfs
                         arg.prev_log_index = next_index[i] - 1;
                         arg.prev_log_term = log_storage->log_entries[arg.prev_log_index].term;
 
-                        RAFT_LOG("Node %d send append entries to node %d in run_background_commit, next_index = %d, last_log_index = %d, log_entries.size() = %d", my_id, i, next_index[i], log_storage->last_log_index(), int(arg.log_entries.size()));
+                        RAFT_LOG("Node %d send append entries to node %d in run_background_commit ", my_id, i);
+                        RAFT_LOG("next_index = %d, last_log_index = %d, log_entries.size() = %d", next_index[i], log_storage->last_log_index(), int(log_entries.size()));
                         thread_pool->enqueue([this, i, arg]()
                                              { send_append_entries(i, arg); });
                     }
@@ -955,25 +962,27 @@ namespace chfs
         /* Uncomment following code when you finish */
         while (true)
         {
-            usleep(100000);
+            usleep(10000);
             if (is_stopped())
             {
                 return;
             }
-            if (last_applied == commit_index)
+            if (last_applied >= commit_index)
             {
                 continue;
             }
             else
+            // If commitIndex > lastApplied: increment lastApplied, apply log[lastApplied] to state machine
             {
-                RAFT_LOG("Node %d apply logs to state machine", my_id);
+                RAFT_LOG("Node %d apply logs to state machine: last_applied = %d, commit_index = %d", my_id, last_applied, commit_index);
                 mtx.lock();
-                last_applied = commit_index;
                 for (int i = last_applied + 1; i <= commit_index; i++)
                 {
                     Command cmd_entry = log_storage->log_entries[i].cmd;
                     state->apply_log(cmd_entry);
+                    RAFT_LOG("Apply log: term %d, index %d, data %d", log_storage->log_entries[i].term, i, cmd_entry.value);
                 }
+                last_applied = commit_index;
                 mtx.unlock();
             }
         }
