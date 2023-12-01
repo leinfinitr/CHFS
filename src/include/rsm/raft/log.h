@@ -47,14 +47,16 @@ namespace chfs
         /* Lab3: Your code here */
 
         /**
-         * Notice that the first log index is 1 instead of 0. 
-         * We need to append an empty log entry to the logs at the very beginning. 
+         * Notice that the first log index is 1 instead of 0.
+         * We need to append an empty log entry to the logs at the very beginning.
          * And since the 'lastApplied' index starts from 0, the first empty log entry will never be applied to the state machine.
          */
         std::vector<Entry<Command>> log_entries;
 
         int last_log_index() const;
         int last_log_term() const;
+        int prev_log_index() const;
+        int prev_log_term() const;
         void append_log(int term, Command cmd);
 
     private:
@@ -68,7 +70,7 @@ namespace chfs
     /**
      * Get the index of the last log.
      * @return The index of the last log.
-    */
+     */
     template <typename Command>
     int RaftLog<Command>::last_log_index() const
     {
@@ -79,7 +81,7 @@ namespace chfs
     /**
      * Get the term of the last log.
      * @return The term of the last log.
-    */
+     */
     template <typename Command>
     int RaftLog<Command>::last_log_term() const
     {
@@ -88,10 +90,35 @@ namespace chfs
     }
 
     /**
+     * Get the index of the previous log.
+     * @return The index of the previous log.
+     */
+    template <typename Command>
+    int RaftLog<Command>::prev_log_index() const
+    {
+        std::unique_lock<std::mutex> lock(mtx);
+        return log_entries.size() - 2;
+    }
+
+    /**
+     * Get the term of the previous log.
+     * @return The term of the previous log.
+     */
+    template <typename Command>
+    int RaftLog<Command>::prev_log_term() const
+    {
+        std::unique_lock<std::mutex> lock(mtx);
+        if(log_entries.size() <= 1)
+            return -1;
+        else
+            return log_entries[log_entries.size() - 2].term;
+    }
+
+    /**
      * Append a log to the RaftLog.
      * @param term The term of the log.
      * @param value The value of the log.
-    */
+     */
     template <typename Command>
     void RaftLog<Command>::append_log(int term, Command cmd)
     {

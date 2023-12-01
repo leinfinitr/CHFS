@@ -59,12 +59,14 @@ namespace chfs
     struct RpcAppendEntriesArgs
     {
         /* Lab3: Your code here */
-        int term;                // leader's term
-        int leader_id;           // so follower can redirect clients
-        int prev_log_index;      // index of log entry immediately preceding new ones
-        int prev_log_term;       // term of prevLogIndex entry
-        int leader_commit;       // leader's commitIndex
-        std::vector<u8> entries; // log entries to store (empty for heartbeat; may send more than one for efficiency)
+        int term;                       // leader's term
+        int leader_id;                  // so follower can redirect clients
+        int prev_log_index;             // index of log entry immediately preceding new ones
+        int prev_log_term;              // term of prevLogIndex entry
+        int leader_commit;              // leader's commitIndex
+        // Each entry contains a command and the term number when the entry was received by the leader
+        std::vector<int> command_value; // log command to store (empty for heartbeat; may send more than one for efficiency)
+        std::vector<int> entry_term;          // log term to store (empty for heartbeat; may send more than one for efficiency)
 
         MSGPACK_DEFINE(
             term,
@@ -72,7 +74,8 @@ namespace chfs
             prev_log_index,
             prev_log_term,
             leader_commit,
-            entries)
+            command_value,
+            term)
     };
 
     template <typename Command>
@@ -85,20 +88,12 @@ namespace chfs
         rpc_arg.prev_log_index = arg.prev_log_index;
         rpc_arg.prev_log_term = arg.prev_log_term;
         rpc_arg.leader_commit = arg.leader_commit;
-        std::vector<u8> entries;
-        bool jump_first = false; // Jump the first empty log entry
         // std::cout << "arg.log_entries.size() = " << arg.log_entries.size() << std::endl;
         for (const Entry<Command> &cmd_entry : arg.log_entries)
         {
-            if (!jump_first)
-            {
-                jump_first = true;
-                continue;
-            }
-            std::vector<u8> cmd_entry_data = cmd_entry.cmd.serialize(cmd_entry.cmd.size());
-            entries.insert(entries.end(), cmd_entry_data.begin(), cmd_entry_data.end());
+            rpc_arg.command_value.push_back(cmd_entry.cmd.value);
+            rpc_arg.entry_term.push_back(cmd_entry.term);
         }
-        rpc_arg.entries = entries;
         // std::cout << "rpc_arg.entries.size() = " << rpc_arg.entries.size() << std::endl;
         return rpc_arg;
     }
@@ -113,15 +108,13 @@ namespace chfs
         arg.prev_log_index = rpc_arg.prev_log_index;
         arg.prev_log_term = rpc_arg.prev_log_term;
         arg.leader_commit = rpc_arg.leader_commit;
-        std::vector<u8> entries = rpc_arg.entries;
-        int i = 0;
-        while (i < entries.size())
+        // std::cout << "rpc_arg.entries.size() = " << rpc_arg.entries.size() << std::endl;
+        for (int i = 0; i < rpc_arg.command_value.size(); i++)
         {
-            Command cmd_entry;
-            std::vector<u8> entry(entries.begin() + i, entries.begin() + i + cmd_entry.size());
-            cmd_entry.deserialize(entry, cmd_entry.size());
-            arg.log_entries.push_back(Entry<Command>(arg.term, cmd_entry));
-            i += cmd_entry.size();
+            Entry<Command> cmd_entry;
+            cmd_entry.cmd.value = rpc_arg.command_value[i];
+            cmd_entry.term = rpc_arg.entry_term[i];
+            arg.log_entries.push_back(cmd_entry);
         }
 
         return arg;
