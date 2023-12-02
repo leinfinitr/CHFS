@@ -174,6 +174,7 @@ namespace chfs
 
         /**
          * Reset the vote_count = 0, election_timer = 0, last_ping_timer = 0
+         * 只适用于当收到来自 leader 或者可以成为 leader 的 node 的消息时
          */
         void reset_counter()
         {
@@ -345,6 +346,7 @@ namespace chfs
     auto RaftNode<StateMachine, Command>::new_command(std::vector<u8> cmd_data, int cmd_size) -> std::tuple<bool, int, int>
     {
         /* Lab3: Your code here */
+        std::unique_lock<std::mutex> lock(mtx);
         // Only work for leader
         // Append entry to local log, respond after entry applied to state machine
         if (role != RaftRole::Leader)
@@ -448,6 +450,20 @@ namespace chfs
         //     }
         // }
 
+        // 当 args.term > current_term 时，无论是否投票，都需要更新 current_term
+        if(args.term > current_term) {
+            mtx.lock();
+            current_term = args.term;
+            role = RaftRole::Follower;
+            leader_id = -1;
+            // 不能 reset_counter，否则会导致无法选举出 leader
+            // reset_counter();
+            // 只需要重置 vote_count 和 voted_for
+            vote_count = 0;
+            voted_for = -1;
+            mtx.unlock();
+        }
+
         if (vote_granted)
         {
             mtx.lock();
@@ -483,7 +499,7 @@ namespace chfs
             current_term = reply.term;
             role = RaftRole::Follower;
             leader_id = -1;
-            reset_counter();
+            vote_count = 0;
             voted_for = -1;
             mtx.unlock();
             return;
@@ -623,7 +639,7 @@ namespace chfs
             current_term = reply.term;
             role = RaftRole::Follower;
             leader_id = -1;
-            reset_counter();
+            vote_count = 0;
             voted_for = -1;
             mtx.unlock();
             return;
