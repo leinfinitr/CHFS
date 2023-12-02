@@ -231,7 +231,8 @@ namespace chfs
 
         /* Lab3: Your code here */
         thread_pool = std::make_unique<ThreadPool>(4);
-        log_storage = std::make_unique<RaftLog<Command>>(nullptr);
+        std::string log_file = "/tmp/raft_log/" + std::to_string(my_id);
+        log_storage = std::make_unique<RaftLog<Command>>(log_file);
         state = std::make_unique<StateMachine>();
         // Initialize rpc_clients_map
         // PUT IT IN START !!!!!!!!!!!!!!!!
@@ -281,25 +282,26 @@ namespace chfs
     {
         /* Lab3: Your code here */
         RAFT_LOG("Node %d start: config_size: %d, my_config: %d, %s:%d", my_id, static_cast<int>(node_configs.size()), my_id, node_configs[my_id].ip_address.c_str(), static_cast<int>(node_configs[my_id].port));
-        
-        std::unique_lock<std::mutex> client_lock(clients_mtx);
+    
+        clients_mtx.lock();
         // 在 start 中初始化 rpc_clients_map 防止在构造函数中初始化时无法连接到其他 node
         for (auto config : node_configs)
         {
             RAFT_LOG("Insert: %d, %s:%d", config.node_id, config.ip_address.c_str(), static_cast<int>(config.port));
             rpc_clients_map[config.node_id] = std::make_unique<RpcClient>(config.ip_address, config.port, true);
         }
+        clients_mtx.unlock();
 
         mtx.lock();
-
         log_storage->recover_from_disk();
         stopped.store(false);
+        mtx.unlock();
+
         background_election = std::make_unique<std::thread>(&RaftNode::run_background_election, this);
         background_ping = std::make_unique<std::thread>(&RaftNode::run_background_ping, this);
         background_commit = std::make_unique<std::thread>(&RaftNode::run_background_commit, this);
         background_apply = std::make_unique<std::thread>(&RaftNode::run_background_apply, this);
-
-        mtx.unlock();
+        
         return 0;
     }
 

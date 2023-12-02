@@ -27,17 +27,22 @@ namespace chfs
     public:
         RaftLog()
         {
-            bm_ = std::make_shared<BlockManager>("log");
+            bm_ = std::make_shared<BlockManager>("/tmp/raft_log/log");
             log_entries.push_back(Entry<Command>());
             log_block_id = 1;
             log_block_offset = 0;
+            bm_->write_partial_block(0, (u8 *)&log_block_id, 0, 4);
+            bm_->write_partial_block(0, (u8 *)&log_block_offset, 4, 4);
+        }
+        RaftLog(const std::string &file)
+        {
+            bm_ = std::make_shared<BlockManager>(file);
+            recover_from_disk();
         }
         RaftLog(std::shared_ptr<BlockManager> bm)
         {
             bm_ = bm;
-            log_entries.push_back(Entry<Command>());
-            log_block_id = 1;
-            log_block_offset = 0;
+            recover_from_disk();
         }
         RaftLog(const RaftLog &raft_log)
         {
@@ -84,8 +89,8 @@ namespace chfs
          * 由于 log 只有 append 和 erase 两种操作，因此对 bm_ 的设计遵循以下原则
          * 1.记录下一次 persist 的 log_block_id 和 log_block_offset
          * 2. log_block_id 初始化为 1，log_block_offset 初始化为 0
-         * - 3. block 0 用于存储 metadata，因此 log_block_id 从 1 开始
-         * - 4. metedata 存储格式为 [log_block_id, log_block_offset]
+         * 3. block 0 用于存储 metadata，因此 log_block_id 从 1 开始
+         * 4. metedata 存储 log_block_id 和 log_block_offset
          * 5.每个 log entry 的存储格式为 [term, cmd.value]
          * 6.每个 log entry 和 metadata 的大小为 8(int 4 + int 4) 字节
          * 7.每个 block 的大小为 4096 字节，存储的 log entry 数量为 512 个
@@ -152,8 +157,10 @@ namespace chfs
     template <typename Command>
     void RaftLog<Command>::append_log(int term, Command cmd)
     {
-        std::unique_lock<std::mutex> lock(mtx);
+        mtx.lock();
         log_entries.push_back(Entry<Command>{term, cmd});
+        mtx.unlock();
+
         store_log(term, cmd);
     }
 
@@ -164,8 +171,10 @@ namespace chfs
     template <typename Command>
     void RaftLog<Command>::erase_log(int index)
     {
-        std::unique_lock<std::mutex> lock(mtx);
+        mtx.lock();
         log_entries.erase(log_entries.begin() + index, log_entries.end());
+        mtx.unlock();
+
         delete_log(index);
     }
 
@@ -175,21 +184,32 @@ namespace chfs
     template <typename Command>
     void RaftLog<Command>::recover_from_disk()
     {
+        std::cout << "recover_from_disk" << std::endl;
         std::unique_lock<std::mutex> lock(mtx);
+
+        bm_->read_partial_block(0, (u8 *)&log_block_id, 0, 4);
+        bm_->read_partial_block(0, (u8 *)&log_block_offset, 4, 4);
+        std::cout << "log_block_id = " << log_block_id << " log_block_offset = " << log_block_offset << std::endl;
+
+        if(log_block_id == 0 && log_block_offset == 0){
+            // 当 log 为空时初始化 log
+            std::cout << "log is empty, init log" << std::endl;
+            log_entries.push_back(Entry<Command>());
+            log_block_id = 1;
+            log_block_offset = 0;
+            bm_->write_partial_block(0, (u8 *)&log_block_id, 0, 4);
+            bm_->write_partial_block(0, (u8 *)&log_block_offset, 4, 4);
+            return;
+        }
 
         int block_id = 1;
         int block_offset = 0;
         int term;
         Command cmd;
-        usize total_storage_size = bm_->total_storage_sz();
-        while (true)
+        while (block_id < log_block_id || (block_id == log_block_id && block_offset < log_block_offset))
         {
-            if (block_id * bm_->block_size() > total_storage_size)
-                break;
             bm_->read_partial_block(block_id, (u8 *)&term, block_offset * 8, 4);
             bm_->read_partial_block(block_id, (u8 *)&cmd.value, block_offset * 8 + 4, 4);
-            if (term == 0)
-                break;
             log_entries.push_back(Entry<Command>{term, cmd});
             block_offset++;
             if (block_offset == 512)
@@ -222,6 +242,9 @@ namespace chfs
             log_block_id++;
             log_block_offset = 0;
         }
+
+        bm_->write_partial_block(0, (u8 *)&log_block_id, 0, 4);
+        bm_->write_partial_block(0, (u8 *)&log_block_offset, 4, 4);
     }
 
     /**
@@ -247,6 +270,12 @@ namespace chfs
                 delete_offset = 0;
             }
         }
+
+        log_block_id = delete_id;
+        log_block_offset = delete_offset;
+
+        bm_->write_partial_block(0, (u8 *)&log_block_id, 0, 4);
+        bm_->write_partial_block(0, (u8 *)&log_block_offset, 4, 4);
     }
 
 } /* namespace chfs */
