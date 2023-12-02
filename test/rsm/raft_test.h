@@ -433,6 +433,7 @@ namespace chfs
 
     void Restart(int node_id)
     {
+      std::cout << "Restart node " << node_id << std::endl;
       DisableNode(node_id);
 
       clients[node_id].reset();
@@ -451,6 +452,7 @@ namespace chfs
       clients[node_id]->call(RAFT_RPC_START_NODE);
 
       EnableNode(node_id);
+      std::cout << "Restart node " << node_id << " done" << std::endl;
     }
 
     int RpcCount(int node_id)

@@ -280,6 +280,14 @@ namespace chfs
     return KNullOk;
   }
 
+  auto BlockManager::read_partial_block(block_id_t block_id, u8 *data,
+                                        usize offset, usize len) -> ChfsNullResult
+  {
+    memcpy(data, this->block_data + block_id * this->block_sz + offset, len);
+
+    return KNullOk;
+  }
+
   auto BlockManager::zero_block(block_id_t block_id) -> ChfsNullResult
   {
     memset(this->block_data + block_id * this->block_sz, 0, this->block_sz);

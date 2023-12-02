@@ -136,6 +136,12 @@ namespace chfs
         -> ChfsNullResult;
 
     /**
+     * Read a partial block to the internal block device.
+     */
+    virtual auto read_partial_block(block_id_t block_id, u8 *block_data,
+                                    usize offset, usize len) -> ChfsNullResult;
+
+    /**
      * Clear the content of a block
      * @param block_id id of the block
      */

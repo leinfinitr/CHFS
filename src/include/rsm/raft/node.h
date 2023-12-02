@@ -234,6 +234,7 @@ namespace chfs
         log_storage = std::make_unique<RaftLog<Command>>(nullptr);
         state = std::make_unique<StateMachine>();
         // Initialize rpc_clients_map
+        // PUT IT IN START !!!!!!!!!!!!!!!!
         // RAFT_LOG("Node %d init rpc_clients_map", my_id);
         // for (auto config : node_configs)
         // {
@@ -280,21 +281,25 @@ namespace chfs
     {
         /* Lab3: Your code here */
         RAFT_LOG("Node %d start: config_size: %d, my_config: %d, %s:%d", my_id, static_cast<int>(node_configs.size()), my_id, node_configs[my_id].ip_address.c_str(), static_cast<int>(node_configs[my_id].port));
-        mtx.lock();
-        stopped.store(false);
+        
+        std::unique_lock<std::mutex> client_lock(clients_mtx);
         // 在 start 中初始化 rpc_clients_map 防止在构造函数中初始化时无法连接到其他 node
         for (auto config : node_configs)
         {
             RAFT_LOG("Insert: %d, %s:%d", config.node_id, config.ip_address.c_str(), static_cast<int>(config.port));
             rpc_clients_map[config.node_id] = std::make_unique<RpcClient>(config.ip_address, config.port, true);
         }
-        mtx.unlock();
 
+        mtx.lock();
+
+        log_storage->recover_from_disk();
+        stopped.store(false);
         background_election = std::make_unique<std::thread>(&RaftNode::run_background_election, this);
         background_ping = std::make_unique<std::thread>(&RaftNode::run_background_ping, this);
         background_commit = std::make_unique<std::thread>(&RaftNode::run_background_commit, this);
         background_apply = std::make_unique<std::thread>(&RaftNode::run_background_apply, this);
 
+        mtx.unlock();
         return 0;
     }
 
@@ -605,7 +610,7 @@ namespace chfs
                 if ((check_end_index - rpc_arg.prev_log_index - 1) >= rpc_arg.command_value.size() ||
                     log_storage->log_entries[check_end_index].term != rpc_arg.entry_term[check_end_index - rpc_arg.prev_log_index - 1])
                 {
-                    log_storage->log_entries.erase(log_storage->log_entries.begin() + check_end_index, log_storage->log_entries.end());
+                    log_storage->erase_log(check_end_index);
                     break;
                 }
             }
