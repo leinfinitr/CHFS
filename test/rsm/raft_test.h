@@ -231,7 +231,7 @@ namespace chfs
 
     /**
      * @brief 计算已经提交的节点数
-    */
+     */
     int NumCommitted(int log_idx)
     {
       int cnt = 0;
@@ -246,7 +246,6 @@ namespace chfs
         auto snapshot = nodes[i]->get_snapshot_direct();
 
         // 在 Machine 中存储 snapshot
-        std::cout << "snapshot: " << snapshot.size() << std::endl;
         std::unique_lock<std::mutex> lock(mtx);
         states[i]->apply_snapshot(snapshot);
 
@@ -256,7 +255,7 @@ namespace chfs
         // }
         // std::cerr << std::endl;
 
-        std::cout << "store size: " << states[i]->store.size() << " log_idx: " << log_idx << std::endl;
+        std::cout << "node " << i << " : snapshot: " << snapshot.size() << " store size: " << states[i]->store.size() << " log_idx: " << log_idx << std::endl;
         if (static_cast<int>(states[i]->store.size()) > log_idx)
         {
           log_value = states[i]->store[log_idx];
@@ -292,7 +291,7 @@ namespace chfs
 
     /**
      * @brief 向 leader 发送新的命令，等待被 expected_nodes 个节点 commit 后返回 log_idx
-    */
+     */
     int AppendNewCommand(int value, int expected_nodes)
     {
       std::cout << "AppendNewCommand: value = " << value << " expected_nodes = " << expected_nodes << std::endl;

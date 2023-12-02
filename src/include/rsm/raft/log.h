@@ -37,12 +37,10 @@ namespace chfs
         RaftLog(const std::string &file)
         {
             bm_ = std::make_shared<BlockManager>(file);
-            recover_from_disk();
         }
         RaftLog(std::shared_ptr<BlockManager> bm)
         {
             bm_ = bm;
-            recover_from_disk();
         }
         RaftLog(const RaftLog &raft_log)
         {
@@ -71,7 +69,7 @@ namespace chfs
         int prev_log_term() const;
         void append_log(int term, Command cmd);
         void erase_log(int index);
-        void recover_from_disk();
+        void recover_from_disk();   // RaftLog 自身不能决定是否从磁盘恢复，需要在外部判断，因此该函数只能在外部调用
 
     private:
         std::shared_ptr<BlockManager> bm_;
@@ -87,13 +85,14 @@ namespace chfs
 
         /**
          * 由于 log 只有 append 和 erase 两种操作，因此对 bm_ 的设计遵循以下原则
-         * 1.记录下一次 persist 的 log_block_id 和 log_block_offset
+         * 1.记录下一次要 persist 的 log_block_id 和 log_block_offset
          * 2. log_block_id 初始化为 1，log_block_offset 初始化为 0
          * 3. block 0 用于存储 metadata，因此 log_block_id 从 1 开始
          * 4. metedata 存储 log_block_id 和 log_block_offset
          * 5.每个 log entry 的存储格式为 [term, cmd.value]
          * 6.每个 log entry 和 metadata 的大小为 8(int 4 + int 4) 字节
          * 7.每个 block 的大小为 4096 字节，存储的 log entry 数量为 512 个
+         * 8. bm_ 中并不存储 log_entries 的第一个空值
          */
 
         void store_log(int term, Command cmd);
@@ -187,6 +186,10 @@ namespace chfs
         std::cout << "recover_from_disk" << std::endl;
         std::unique_lock<std::mutex> lock(mtx);
 
+        // 恢复时的初始化
+        log_entries.clear();
+        log_entries.push_back(Entry<Command>());
+        // 如果 log 为空则 log_block_id 和 log_block_offset 为 0
         bm_->read_partial_block(0, (u8 *)&log_block_id, 0, 4);
         bm_->read_partial_block(0, (u8 *)&log_block_offset, 4, 4);
         std::cout << "log_block_id = " << log_block_id << " log_block_offset = " << log_block_offset << std::endl;
@@ -194,7 +197,6 @@ namespace chfs
         if(log_block_id == 0 && log_block_offset == 0){
             // 当 log 为空时初始化 log
             std::cout << "log is empty, init log" << std::endl;
-            log_entries.push_back(Entry<Command>());
             log_block_id = 1;
             log_block_offset = 0;
             bm_->write_partial_block(0, (u8 *)&log_block_id, 0, 4);

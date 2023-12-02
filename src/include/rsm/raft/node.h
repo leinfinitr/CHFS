@@ -246,7 +246,7 @@ namespace chfs
         // RAFT_LOG("Node %d init next_index and match_index", my_id);
         for (int i = 0; i < node_configs.size(); i++)
         {
-            next_index.push_back(log_storage->last_log_index() + 1);
+            next_index.push_back(1);
             match_index.push_back(0);
         }
 
@@ -294,6 +294,9 @@ namespace chfs
 
         mtx.lock();
         log_storage->recover_from_disk();
+        // 将 current_term 设置为 log_storage 中的最后一个 term，即在关闭之前的 term
+        // 否则当多个 node 同时重启时，会出现新增 cmd 的 term 小于 log 中的 term 的情况
+        current_term = log_storage->last_log_term();
         stopped.store(false);
         mtx.unlock();
 
@@ -624,7 +627,7 @@ namespace chfs
                 Command cmd;
                 cmd.value = rpc_arg.command_value[i];
                 int tmp = rpc_arg.entry_term[i];
-                RAFT_LOG("append log: i %d, index %d, term %d, data %d", i, check_end_index + i, tmp, cmd.value);
+                RAFT_LOG("append log: i %d, index %d, term %d, data %d", i, check_end_index, tmp, cmd.value);
                 log_storage->append_log(rpc_arg.entry_term[i], cmd);
             }
 
