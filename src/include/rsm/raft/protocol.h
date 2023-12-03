@@ -59,14 +59,14 @@ namespace chfs
     struct RpcAppendEntriesArgs
     {
         /* Lab3: Your code here */
-        int term;                       // leader's term
-        int leader_id;                  // so follower can redirect clients
-        int prev_log_index;             // index of log entry immediately preceding new ones
-        int prev_log_term;              // term of prevLogIndex entry
-        int leader_commit;              // leader's commitIndex
+        int term;           // leader's term
+        int leader_id;      // so follower can redirect clients
+        int prev_log_index; // index of log entry immediately preceding new ones
+        int prev_log_term;  // term of prevLogIndex entry
+        int leader_commit;  // leader's commitIndex
         // Each entry contains a command and the term number when the entry was received by the leader
         std::vector<int> command_value; // log command to store (empty for heartbeat; may send more than one for efficiency)
-        std::vector<int> entry_term;          // log term to store (empty for heartbeat; may send more than one for efficiency)
+        std::vector<int> entry_term;    // log term to store (empty for heartbeat; may send more than one for efficiency)
 
         MSGPACK_DEFINE(
             term,
@@ -134,19 +134,31 @@ namespace chfs
     struct InstallSnapshotArgs
     {
         /* Lab3: Your code here */
+        int term;                // leader's term
+        int leader_id;           // so follower can redirect clients
+        int last_included_index; // the snapshot replaces all entries up through and including this index
+        int last_included_term;  // term of last_included_index
+        int offset;              // byte offset where chunk is positioned in the snapshot file
+        std::vector<u8> data;    // raw bytes of the snapshot chunk, starting at offset
+        bool done;               // true if this is the last chunk
 
         MSGPACK_DEFINE(
-
-        )
+            term,
+            leader_id,
+            last_included_index,
+            last_included_term,
+            offset,
+            data,
+            done)
     };
 
     struct InstallSnapshotReply
     {
         /* Lab3: Your code here */
+        int term; // currentTerm, for leader to update itself
 
         MSGPACK_DEFINE(
-
-        )
+            term)
     };
 
 } /* namespace chfs */
