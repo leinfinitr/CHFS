@@ -310,7 +310,6 @@ namespace chfs
           if (!node_network_available[leader_idx])
             continue;
 
-          std::cout << "AppendNewCommand: leader_idx = " << leader_idx << " i = " << i << std::endl;
           // 如果是 leader 则向其发送新的命令
           auto res2 = clients[leader_idx]->call(RAFT_RPC_NEW_COMMEND, cmd.serialize(cmd.size()), cmd.size());
           auto ret2 = res2.unwrap()->as<std::tuple<bool, int, int>>();
@@ -320,7 +319,7 @@ namespace chfs
           int temp_idx;
           std::tie(is_leader, temp_term, temp_idx) = ret2;
 
-          std::cout << "AppendNewCommand: is_leader = " << is_leader << " temp_term = " << temp_term << " temp_idx = " << temp_idx << std::endl;
+          std::cout << "AppendNewCommand: node_id = " << leader_idx << " is_leader = " << is_leader << " temp_term = " << temp_term << " temp_idx = " << temp_idx << std::endl;
           if (is_leader)
           {
             // 发送命令后更新 log_idx，而后跳出循环
@@ -334,7 +333,6 @@ namespace chfs
           auto check_start = std::chrono::system_clock::now();
           while (std::chrono::system_clock::now() < check_start + std::chrono::seconds(2))
           {
-            std::cout << "AppendNewCommand: log_idx = " << log_idx << std::endl;
             int committed_nodes = NumCommitted(log_idx);
             std::cout << "AppendNewCommand: committed_nodes = " << committed_nodes << " expected_nodes = " << expected_nodes << std::endl;
             if (committed_nodes >= expected_nodes)

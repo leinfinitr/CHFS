@@ -165,7 +165,7 @@ namespace chfs
         std::vector<int> next_index;  /* For each server, index of the next log entry to send to that server (initialized to leader last log index + 1) */
         std::vector<int> match_index; /* For each server, index of highest log entry known to be replicated on server (initialized to 0, increases monotonically) */
 
-        std::vector<u8> snapshot; /* The temporary snapshot of the state machine */
+        std::vector<u8> snapshot; /* The temporary snapshot of the log */
 
         std::unique_ptr<std::thread> background_election;
         std::unique_ptr<std::thread> background_ping;
@@ -376,15 +376,17 @@ namespace chfs
     }
 
     // 保存所有已经 commit 且已经 apply 的 log
+    // 此处保存的是 log_storage 中的 snapshot
     template <typename StateMachine, typename Command>
     auto RaftNode<StateMachine, Command>::save_snapshot() -> bool
     {
         /* Lab3: Your code here */
         RAFT_LOG("Node %d save snapshot: commit_index %d, last_applied %d", my_id, commit_index, last_applied);
-        log_storage->save_snapshot(commit_index, state->snapshot());
+        log_storage->save_snapshot(last_applied);
         return true;
     }
 
+    // 此处的 get_snapshot 是 state 中的 snapshot 而不是 log_storage 中的 snapshot
     template <typename StateMachine, typename Command>
     auto RaftNode<StateMachine, Command>::get_snapshot() -> std::vector<u8>
     {
@@ -621,7 +623,7 @@ namespace chfs
             for (; check_end_index <= log_storage->last_log_index(); check_end_index++)
             {
                 if ((check_end_index - rpc_arg.prev_log_index - 1) >= rpc_arg.command_value.size() ||
-                    log_storage->log_entries[check_end_index].term != rpc_arg.entry_term[check_end_index - rpc_arg.prev_log_index - 1])
+                    log_storage->get_term(check_end_index) != rpc_arg.entry_term[check_end_index - rpc_arg.prev_log_index - 1])
                 {
                     log_storage->erase_log(check_end_index);
                     break;
@@ -694,7 +696,7 @@ namespace chfs
                             count++;
                         }
                     }
-                    if (count > node_configs.size() / 2 && log_storage->log_entries[N].term == current_term)
+                    if (count > node_configs.size() / 2 && log_storage->get_term(N) == current_term)
                     {
                         commit_index = N;
                     }
@@ -713,12 +715,12 @@ namespace chfs
                 arg.term = current_term;
                 arg.leader_id = my_id;
                 arg.prev_log_index = next_index[node_id] - 1;
-                arg.prev_log_term = log_storage->log_entries[arg.prev_log_index].term;
+                arg.prev_log_term = log_storage->get_term(arg.prev_log_index);
                 arg.leader_commit = commit_index;
 
                 // Construct log_entries which contains the logs after prev_log_index
                 std::vector<Entry<Command>> log_entries;
-                log_entries.assign(log_storage->log_entries.begin() + arg.prev_log_index + 1, log_storage->log_entries.end());
+                log_entries = log_storage->get_log_entries(next_index[node_id]);
                 arg.log_entries = log_entries;
 
                 mtx.unlock();
@@ -752,7 +754,7 @@ namespace chfs
         }
 
         // Create a new snapshot if first chunk (offset is 0)
-        if(args.offset == 0)
+        if (args.offset == 0)
         {
             snapshot.clear();
         }
@@ -1029,20 +1031,32 @@ namespace chfs
                         std::vector<Entry<Command>> log_entries;
                         if (next_index[i] > log_storage->last_included_index())
                         {
-                            log_entries.assign(log_storage->log_entries.begin() + next_index[i], log_storage->log_entries.end());
+                            log_entries = log_storage->get_log_entries(next_index[i]);
+                            arg.log_entries = log_entries;
+                            arg.prev_log_index = next_index[i] - 1;
+                            arg.prev_log_term = log_storage->get_term(arg.prev_log_index);
                         }
                         else
                         {
                             mtx.lock();
                             save_snapshot();
-                            log_entries.assign(log_storage->log_entries.begin() + log_storage->last_included_index() + 1, log_storage->log_entries.end());
+                            // 如果有未 apply 的日志，则将其放入 log_entries 中
+                            if (log_storage->last_log_index() > log_storage->last_included_index())
+                            {
+                                log_entries = log_storage->get_log_entries(log_storage->last_included_index() + 1);
+                            }
+                            arg.log_entries = log_entries;
+                            // 此时需要将 prev_log_index 和 prev_log_term 设置为 last_included_index 和 last_included_term
+                            arg.prev_log_index = log_storage->last_included_index();
+                            arg.prev_log_term = log_storage->last_included_term();
+
                             InstallSnapshotArgs args;
                             args.term = current_term;
                             args.leader_id = my_id;
                             args.last_included_index = log_storage->last_included_index();
                             args.last_included_term = log_storage->last_included_term();
                             args.offset = 0;
-                            args.data = state->snapshot();
+                            args.data = log_storage->get_snapshot_data();
                             args.done = true;
                             mtx.unlock();
 
@@ -1050,10 +1064,6 @@ namespace chfs
                             thread_pool->enqueue([this, i, args]()
                                                  { send_install_snapshot(i, args); });
                         }
-                        arg.log_entries = log_entries;
-
-                        arg.prev_log_index = next_index[i] - 1;
-                        arg.prev_log_term = log_storage->log_entries[arg.prev_log_index].term;
 
                         RAFT_LOG("Node %d send append entries to node %d in run_background_commit ", my_id, i);
                         RAFT_LOG("next_index = %d, last_log_index = %d, log_entries.size() = %d", next_index[i], log_storage->last_log_index(), int(log_entries.size()));
@@ -1092,13 +1102,13 @@ namespace chfs
                 mtx.lock();
                 for (int i = last_applied + 1; i <= commit_index; i++)
                 {
-                    Command cmd_entry = log_storage->log_entries[i].cmd;
+                    Command cmd_entry = log_storage->get_command(i);
                     state->apply_log(cmd_entry);
-                    RAFT_LOG("Apply log: term %d, index %d, data %d", log_storage->log_entries[i].term, i, cmd_entry.value);
+                    RAFT_LOG("Apply log: term %d, index %d, data %d", log_storage->get_term(i), i, cmd_entry.value);
                 }
                 last_applied = commit_index;
                 // 每当数据长度大于 50 时，就保存一次快照
-                if (log_storage->log_entries.size() > 50)
+                if (log_storage->last_log_index() - log_storage->last_included_index() > 50)
                 {
                     save_snapshot();
                 }
