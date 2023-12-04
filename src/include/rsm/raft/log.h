@@ -20,6 +20,7 @@ namespace chfs
     {
         int last_included_index;
         int last_included_term;
+        int size;
         std::vector<u8> data;
     };
 
@@ -88,11 +89,11 @@ namespace chfs
 
         void save_snapshot(int logical_index);
         void save_snapshot(Snapshot snapshot);
-        void save_snapshot(int last_included_index, std::vector<u8> data);
+        // void save_snapshot(int last_included_index, std::vector<u8> data);
         void save_snapshot(int last_included_index, int last_included_term, std::vector<u8> data);
         int last_included_index();
         int last_included_term();
-        std::vector<u8> get_snapshot_data();
+        Snapshot get_snapshot();
 
     private:
         /**
@@ -114,6 +115,8 @@ namespace chfs
          * 2. snapshot_bm_ 数据格式为 [last_included_index, last_included_term, snapshot_size, data]
          * 3.删除时更新 start_block_id 和 start_block_offset，而不是从 BlockManager 中删除
          * 4. snapshot_bm_ 中的所有数据均存储在硬盘中，恢复时只需要恢复 last_included_index_, last_included_term_ 和 snapshot_size 即可
+         * 5. snapshot_bm_ 中的数据不包含 log_entries 的第一个空值
+         * 6. snapshot_bm_ 中的数据是 serialized 的，因此需要在恢复时进行 deserialize
          */
         std::shared_ptr<BlockManager> snapshot_bm_; // 用于存储快照
 
@@ -204,8 +207,10 @@ namespace chfs
     int RaftLog<Command>::get_term(int logical_index) const
     {
         std::unique_lock<std::mutex> lock(mtx);
-        // 如果 log_entries 不包含 log_entry 则返回 last_included_term
-        if (logical_index <= last_included_index_)
+        // 如果 log_entries 不包含 log_entry 则抛出异常
+        if (logical_index < last_included_index_)
+            throw std::runtime_error("logical_index <= last_included_index_ in get_term");
+        else if (logical_index == last_included_index_)
             return last_included_term_;
         else
             return log_entries[logical_index - last_included_index_].term;
@@ -220,9 +225,9 @@ namespace chfs
     Command RaftLog<Command>::get_command(int logical_index) const
     {
         std::unique_lock<std::mutex> lock(mtx);
-        // 如果 log_entries 不包含 log_entry 则返回空值
+        // 如果 log_entries 不包含 log_entry 则抛出异常
         if (logical_index <= last_included_index_)
-            return Command();
+            throw std::runtime_error("logical_index <= last_included_index_ in get_command");
         else
             return log_entries[logical_index - last_included_index_].cmd;
     }
@@ -236,9 +241,9 @@ namespace chfs
     std::vector<Entry<Command>> RaftLog<Command>::get_log_entries(int start_logical_index) const
     {
         std::unique_lock<std::mutex> lock(mtx);
-        // 如果 log_entries 不包含 log_entry 则返回空向量
+        // 如果 log_entries 不包含 log_entry 则抛出异常
         if (start_logical_index <= last_included_index_)
-            return std::vector<Entry<Command>>();
+            throw std::runtime_error("start_logical_index <= last_included_index_ in get_log_entries");
         else
             return std::vector<Entry<Command>>(log_entries.begin() + start_logical_index - last_included_index_, log_entries.end());
     }
@@ -337,10 +342,12 @@ namespace chfs
     template <typename Command>
     void RaftLog<Command>::save_snapshot(int logical_index)
     {
-        std::unique_lock<std::mutex> lock(mtx);
+        mtx.lock();
 
-        if (logical_index <= last_included_index_)
+        if (logical_index <= last_included_index_){
+            mtx.unlock();
             return;
+        }
 
         // Save snapshot file, discard any existing or partial snapshot with a smaller index
         int physical_index = logical_index - last_included_index_;
@@ -351,7 +358,7 @@ namespace chfs
             std::vector<u8> temp = log_entries[i].cmd.serialize(log_entries[i].cmd.size());
             data.insert(data.end(), temp.begin(), temp.end());
         }
-        Snapshot snapshot{logical_index, last_included_term, data};
+        Snapshot snapshot{logical_index, last_included_term, int(data.size()), data};
 
         // Retain log entries following last_included_index and discard the log entries before last_included_index
         // 由于 BlockManager 本身并没有实现删除功能，因此通过修改 start_block_id 和 start_block_offset 来实现删除
@@ -362,11 +369,14 @@ namespace chfs
         log_entries.erase(log_entries.begin() + 1, log_entries.begin() + physical_index + 1);
 
         mtx.unlock();
+
+        // std::cout << "save_snapshot logical_index = " << logical_index << " last_included_index_ = " << last_included_index_ << " last_included_term_ = " << last_included_term_ << std::endl;
         save_snapshot(snapshot);
     }
 
     /**
      * Save a snapshot to the BlockManager.
+     * 此处的 save 为在已经保存的数据上进行修改，而不是覆盖
      * @param snapshot The snapshot to be saved.
      */
     template <typename Command>
@@ -377,17 +387,9 @@ namespace chfs
         if (snapshot.last_included_index <= last_included_index_)
             return;
 
-        last_included_index_ = snapshot.last_included_index;
-        last_included_term_ = snapshot.last_included_term;
-        snapshot_size = snapshot.data.size();
-
-        snapshot_bm_->write_partial_block(0, (u8 *)&snapshot.last_included_index, 0, 4);
-        snapshot_bm_->write_partial_block(0, (u8 *)&snapshot.last_included_term, 4, 4);
-        snapshot_bm_->write_partial_block(0, (u8 *)&snapshot_size, 8, 4);
-
-        int size = snapshot.data.size(); // 需要写入的数据大小
-        int block_id = 0;
-        int block_offset = 12;
+        int size = snapshot.size;                       // 需要写入的数据大小
+        int block_id = (snapshot_size + 12) / 4096;     // 需要写入的 block_id
+        int block_offset = (snapshot_size + 12) % 4096; // 需要写入的 block_offset
         while (size > 0)
         {
             int len = std::min(size, 4096 - block_offset);
@@ -396,6 +398,16 @@ namespace chfs
             block_id++;
             block_offset = 0;
         }
+
+        last_included_index_ = snapshot.last_included_index;
+        last_included_term_ = snapshot.last_included_term;
+        snapshot_size += snapshot.size;
+
+        snapshot_bm_->write_partial_block(0, (u8 *)&snapshot.last_included_index, 0, 4);
+        snapshot_bm_->write_partial_block(0, (u8 *)&snapshot.last_included_term, 4, 4);
+        snapshot_bm_->write_partial_block(0, (u8 *)&snapshot_size, 8, 4);
+
+        // std::cout << "finish save_snapshot last_included_index_ = " << last_included_index_ << " last_included_term_ = " << last_included_term_ << " snapshot_size = " << snapshot_size << std::endl;
     }
 
     /**
@@ -405,29 +417,29 @@ namespace chfs
      * @param last_included_index The index of the last log entry included in the snapshot.
      * @param data The data of the snapshot.
      */
-    template <typename Command>
-    void RaftLog<Command>::save_snapshot(int last_included_index, std::vector<u8> data)
-    {
-        mtx.lock();
-        if (last_included_index <= last_included_index_)
-            return;
+    // template <typename Command>
+    // void RaftLog<Command>::save_snapshot(int last_included_index, std::vector<u8> data)
+    // {
+    //     mtx.lock();
+    //     if (last_included_index <= last_included_index_)
+    //         return;
 
-        // Save snapshot file, discard any existing or partial snapshot with a smaller index
-        int physical_index = last_included_index - this->last_included_index_;
-        int last_included_term = log_entries[physical_index].term;
-        Snapshot snapshot{last_included_index, last_included_term, data};
+    //     // Save snapshot file, discard any existing or partial snapshot with a smaller index
+    //     int physical_index = last_included_index - this->last_included_index_;
+    //     int last_included_term = log_entries[physical_index].term;
+    //     Snapshot snapshot{last_included_index, last_included_term, data};
 
-        // Retain log entries following last_included_index and discard the log entries before last_included_index
-        // 由于 BlockManager 本身并没有实现删除功能，因此通过修改 start_block_id 和 start_block_offset 来实现删除
-        start_block_id = last_included_index / 512 + 1;
-        start_block_offset = last_included_index % 512;
+    //     // Retain log entries following last_included_index and discard the log entries before last_included_index
+    //     // 由于 BlockManager 本身并没有实现删除功能，因此通过修改 start_block_id 和 start_block_offset 来实现删除
+    //     start_block_id = last_included_index / 512 + 1;
+    //     start_block_offset = last_included_index % 512;
 
-        // 丢弃 log_entries 中 last_included_index 之前的 log_entry
-        log_entries.erase(log_entries.begin() + 1, log_entries.begin() + 1 + physical_index + 1);
+    //     // 丢弃 log_entries 中 last_included_index 之前的 log_entry
+    //     log_entries.erase(log_entries.begin() + 1, log_entries.begin() + 1 + physical_index + 1);
 
-        mtx.unlock();
-        save_snapshot(snapshot);
-    }
+    //     mtx.unlock();
+    //     save_snapshot(snapshot);
+    // }
 
     /**
      * Save a snapshot to the BlockManager.
@@ -441,25 +453,49 @@ namespace chfs
         // Save snapshot file, discard any existing or partial snapshot with a smaller index
         // If existing log entry has same index and term as snapshot’s last included entry, retain log entries following it and reply
         // Discard the entire log
-
-        mtx.lock();
+        
         if (last_included_index <= last_included_index_)
             return;
 
+        mtx.lock();
+        // 删除 log_entries 中 last_included_index 之前的 log_entry
+        // 如果 log_entries 中存在与 snapshot 的最后一个 log_entry 相同的 log_entry，则保留该 log_entry 之后的 log_entry
+        // 否则将 log_entries 中的所有 log_entry 删除
         int physical_index = last_included_index - this->last_included_index_;
-        if (log_entries.size() > physical_index + 1 && log_entries[physical_index].term != last_included_term)
+        if (log_entries.size() > physical_index && log_entries[physical_index].term == last_included_term)
         {
-            log_entries.erase(log_entries.begin() + last_included_index + 1, log_entries.end());
+            log_entries.erase(log_entries.begin() + 1, log_entries.begin() + 1 + physical_index);
         }
-        Snapshot snapshot{last_included_index, last_included_term, data};
+        else
+        {
+            log_entries.clear();
+            log_entries.push_back(Entry<Command>());
+        }
+
+        // 保存 snapshot
+        last_included_index_ = last_included_index;
+        last_included_term_ = last_included_term;
+        snapshot_size = data.size();
+
+        snapshot_bm_->write_partial_block(0, (u8 *)&last_included_index, 0, 4);
+        snapshot_bm_->write_partial_block(0, (u8 *)&last_included_term, 4, 4);
+        snapshot_bm_->write_partial_block(0, (u8 *)&snapshot_size, 8, 4);
+        int size = data.size();
+        int block_id = 0;
+        int block_offset = 12;
+        while (size > 0)
+        {
+            int len = std::min(size, 4096 - block_offset);
+            snapshot_bm_->write_partial_block(block_id, data.data() + data.size() - size, block_offset, len);
+            size -= len;
+            block_id++;
+            block_offset = 0;
+        }
 
         start_block_id = last_included_index / 512 + 1;
         start_block_offset = last_included_index % 512;
 
-        log_entries.erase(log_entries.begin() + 1, log_entries.begin() + 1 + physical_index + 1);
-
         mtx.unlock();
-        save_snapshot(snapshot);
     }
 
     /**
@@ -484,8 +520,10 @@ namespace chfs
      * Get the data of the snapshot.
      */
     template <typename Command>
-    std::vector<u8> RaftLog<Command>::get_snapshot_data()
+    Snapshot RaftLog<Command>::get_snapshot()
     {
+        std::unique_lock<std::mutex> lock(mtx);
+
         std::vector<u8> data;
         int size = snapshot_size;
         int block_id = 0;
@@ -500,7 +538,8 @@ namespace chfs
             block_id++;
             block_offset = 0;
         }
-        return data;
+
+        return Snapshot{last_included_index_, last_included_term_, snapshot_size, data};
     }
 
     /**

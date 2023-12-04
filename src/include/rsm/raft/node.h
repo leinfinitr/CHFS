@@ -381,7 +381,6 @@ namespace chfs
     auto RaftNode<StateMachine, Command>::save_snapshot() -> bool
     {
         /* Lab3: Your code here */
-        RAFT_LOG("Node %d save snapshot: commit_index %d, last_applied %d", my_id, commit_index, last_applied);
         log_storage->save_snapshot(last_applied);
         return true;
     }
@@ -403,6 +402,7 @@ namespace chfs
     template <typename StateMachine, typename Command>
     auto RaftNode<StateMachine, Command>::request_vote(RequestVoteArgs args) -> RequestVoteReply
     {
+        std::unique_lock<std::mutex> lock(mtx);
         /* Lab3: Your code here */
         // args.term > current_term 即使是 leader 也可以投票
         // args.term == current_term, leader 一定会给自己投票
@@ -470,7 +470,6 @@ namespace chfs
         // 当 args.term > current_term 时，无论是否投票，都需要更新 current_term
         if (args.term > current_term)
         {
-            mtx.lock();
             current_term = args.term;
             role = RaftRole::Follower;
             leader_id = -1;
@@ -479,18 +478,15 @@ namespace chfs
             // 只需要重置 vote_count 和 voted_for
             vote_count = 0;
             voted_for = -1;
-            mtx.unlock();
         }
 
         if (vote_granted)
         {
-            mtx.lock();
             current_term = args.term;
             role = RaftRole::Follower;
             leader_id = -1;
             reset_counter();
             voted_for = args.candidate_id;
-            mtx.unlock();
 
             reply.term = current_term;
             reply.vote_granted = true;
@@ -508,18 +504,17 @@ namespace chfs
     template <typename StateMachine, typename Command>
     void RaftNode<StateMachine, Command>::handle_request_vote_reply(int target, const RequestVoteArgs arg, const RequestVoteReply reply)
     {
+        std::unique_lock<std::mutex> lock(mtx);
         /* Lab3: Your code here */
         RAFT_LOG("Node %d receive request vote reply from node %d, term %d, vote_granted %d", my_id, target, reply.term, reply.vote_granted);
         // If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower
         if (reply.term > current_term)
         {
-            mtx.lock();
             current_term = reply.term;
             role = RaftRole::Follower;
             leader_id = -1;
             vote_count = 0;
             voted_for = -1;
-            mtx.unlock();
             return;
         }
         // If role is not candidate, return
@@ -556,7 +551,6 @@ namespace chfs
                     }
                 }
             }
-            return;
         }
 
         return;
@@ -565,6 +559,7 @@ namespace chfs
     template <typename StateMachine, typename Command>
     auto RaftNode<StateMachine, Command>::append_entries(RpcAppendEntriesArgs rpc_arg) -> AppendEntriesReply
     {
+        std::unique_lock<std::mutex> lock(mtx);
         /* Lab3: Your code here */
         AppendEntriesReply reply;
 
@@ -577,7 +572,6 @@ namespace chfs
         }
         else
         {
-            mtx.lock();
             current_term = rpc_arg.term;
             role = RaftRole::Follower;
             leader_id = rpc_arg.leader_id;
@@ -588,7 +582,6 @@ namespace chfs
             {
                 commit_index = std::min(rpc_arg.leader_commit, log_storage->last_log_index());
             }
-            mtx.unlock();
         }
 
         /**
@@ -619,9 +612,15 @@ namespace chfs
             // If an existing entry conflicts with a new one (same index but different terms), delete the existing entry and all that follow it
             // And then append any new entries not already in the log
             // 到这一步可以保证 log_storage->last_log_index() >= rpc_arg.prev_log_index
-            int check_end_index = rpc_arg.prev_log_index + 1; // The index of the last log to check whether it is the same as the leader's
+            int check_end_index; // The index of the last log to check whether it is the same as the leader's
+            // 由于已经 apply 的日志不会被覆盖，因此检查的起点为 prev_log_index + 1 与 last_included_index + 1 中的较大者
+            // 同时保证了 check_end_index > prev_log_index
+            check_end_index = std::max(rpc_arg.prev_log_index + 1, log_storage->last_included_index() + 1);
             for (; check_end_index <= log_storage->last_log_index(); check_end_index++)
             {
+                // 当 check_end_index 超过 leader 的 log 时，说明 node 中存在 leader 中没有的 log
+                // 或者当 check_end_index 与 leader 的 log 不同时，说明存在冲突
+                // 此时需要删除 check_end_index 以及之后的所有 log
                 if ((check_end_index - rpc_arg.prev_log_index - 1) >= rpc_arg.command_value.size() ||
                     log_storage->get_term(check_end_index) != rpc_arg.entry_term[check_end_index - rpc_arg.prev_log_index - 1])
                 {
@@ -696,6 +695,8 @@ namespace chfs
                             count++;
                         }
                     }
+                    // N > commit_index >= last_included_index
+                    // 因此在 get_term 时不需要判断 N 是否大于 last_included_index
                     if (count > node_configs.size() / 2 && log_storage->get_term(N) == current_term)
                     {
                         commit_index = N;
@@ -710,6 +711,28 @@ namespace chfs
             {
                 // If AppendEntries fails because of log inconsistency: decrement nextIndex and retry
                 mtx.lock();
+
+                //  如果 next_index[node_id] - 1 <= log_storage->last_included_index()，则发送 snapshot
+                if(next_index[node_id] - 1 <= log_storage->last_included_index())
+                {
+                    InstallSnapshotArgs arg;
+                    arg.term = current_term;
+                    arg.leader_id = my_id;
+                    arg.last_included_index = log_storage->last_included_index();
+                    arg.last_included_term = log_storage->last_included_term();
+                    arg.offset = 0;
+                    Snapshot log_snapshot = log_storage->get_snapshot();
+                    arg.data = log_snapshot.data;
+                    arg.done = true;
+
+                    mtx.unlock();
+                    RAFT_LOG("Node %d send install snapshot to node %d in handle_append_entries_reply", my_id, node_id);
+                    thread_pool->enqueue([this, node_id, arg]()
+                                         { send_install_snapshot(node_id, arg); });
+                    return;
+                }
+
+                //  否则发送 append_entries
                 next_index[node_id]--;
                 AppendEntriesArgs<Command> arg;
                 arg.term = current_term;
@@ -731,9 +754,11 @@ namespace chfs
         }
     }
 
+    // 此处接收到的 snapshot 是 log_storage 中的 snapshot 而不是 state 中的 snapshot
     template <typename StateMachine, typename Command>
     auto RaftNode<StateMachine, Command>::install_snapshot(InstallSnapshotArgs args) -> InstallSnapshotReply
     {
+        std::unique_lock<std::mutex> lock(mtx);
         /* Lab3: Your code here */
         InstallSnapshotReply reply;
         reply.term = current_term;
@@ -745,12 +770,10 @@ namespace chfs
         }
         else
         {
-            mtx.lock();
             current_term = args.term;
             role = RaftRole::Follower;
             leader_id = args.leader_id;
             reset_counter();
-            mtx.unlock();
         }
 
         // Create a new snapshot if first chunk (offset is 0)
@@ -776,7 +799,35 @@ namespace chfs
         log_storage->save_snapshot(args.last_included_index, args.last_included_term, snapshot);
 
         // Reset state machine using snapshot contents (and load snapshot’s cluster configuration)
-        state->apply_snapshot(snapshot);
+        // 此处需要将 log_storage 中的 snapshot 转换为 state 中的 snapshot
+        std::vector<int> store;
+        store.push_back(0);
+        
+        Snapshot log_snapshot = log_storage->get_snapshot();
+        int size = log_snapshot.size;
+        int offset = 0;
+        while (offset < size)
+        {
+            std::vector<u8> tmp(log_snapshot.data.begin() + offset, log_snapshot.data.begin() + offset + 4);
+            Command cmd;
+            cmd.deserialize(tmp, cmd.size());
+            store.push_back(cmd.value);
+            offset += 4;
+        }
+
+        std::vector<u8> data;
+        std::stringstream ss;
+        ss << (int)store.size();
+        for (auto value : store)
+            ss << ' ' << value;
+        std::string str = ss.str();
+        data.assign(str.begin(), str.end());
+
+        state->apply_snapshot(data);
+
+        // 更新 last_applied 与 commit_index
+        last_applied = std::max(last_applied, args.last_included_index);
+        commit_index = std::max(commit_index, args.last_included_index);
 
         snapshot.clear();
         return reply;
@@ -788,20 +839,18 @@ namespace chfs
     template <typename StateMachine, typename Command>
     void RaftNode<StateMachine, Command>::handle_install_snapshot_reply(int node_id, const InstallSnapshotArgs arg, const InstallSnapshotReply reply)
     {
+        std::unique_lock<std::mutex> lock(mtx);
         /* Lab3: Your code here */
         // If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower
         if (reply.term > current_term)
         {
-            mtx.lock();
             current_term = reply.term;
             role = RaftRole::Follower;
             leader_id = -1;
             reset_counter();
             voted_for = -1;
-            mtx.unlock();
             return;
         }
-        return;
     }
 
     template <typename StateMachine, typename Command>
@@ -906,12 +955,15 @@ namespace chfs
         RAFT_LOG("Node %d run background election", my_id);
         while (true)
         {
+            mtx.unlock();
+
             usleep(1000);
             if (is_stopped())
             {
                 return;
             }
-            /* Lab3: Your code here */
+
+            mtx.lock();
             if (role == RaftRole::Follower)
             {
                 // Periodly check the liveness of the leader.
@@ -925,13 +977,11 @@ namespace chfs
                 if (leader_id == -1 || rpc_clients_map[leader_id] == nullptr || rpc_clients_map[leader_id]->get_connection_state() != rpc::client::connection_state::connected)
                 {
                     role = RaftRole::Candidate;
-
-                    mtx.lock();
+                    
                     current_term++;
                     voted_for = my_id;
                     vote_count = 1;
                     election_timer = 0;
-                    mtx.unlock();
 
                     RAFT_LOG("Node %d start election", my_id);
                     // Issues RequestVote RPCs in parallel to each of the other servers in the cluster.
@@ -957,25 +1007,21 @@ namespace chfs
                 // If election timeout elapses: start new election
                 if (election_timer > election_timeout)
                 {
-                    mtx.lock();
                     current_term++;
                     voted_for = my_id;
                     vote_count = 1;
                     election_timer = 0;
-                    mtx.unlock();
 
                     RAFT_LOG("Node %d start new election", my_id);
                     for (int i = 0; i < node_configs.size(); i++)
                     {
                         if (i != my_id)
                         {
-                            mtx.lock();
                             RequestVoteArgs arg;
                             arg.term = current_term;
                             arg.candidate_id = my_id;
                             arg.last_log_index = log_storage->last_log_index();
                             arg.last_log_term = log_storage->last_log_term();
-                            mtx.unlock();
 
                             thread_pool->enqueue([this, i, arg]()
                                                  { send_request_vote(i, arg); });
@@ -995,11 +1041,15 @@ namespace chfs
         /* Uncomment following code when you finish */
         while (true)
         {
+            mtx.unlock();
+
             usleep(100000);
             if (is_stopped())
             {
                 return;
             }
+
+            mtx.lock();
             if (role != RaftRole::Leader)
             {
                 continue;
@@ -1008,14 +1058,12 @@ namespace chfs
             {
                 RAFT_LOG("Node %d send logs to followers in run_background_commit", my_id);
                 AppendEntriesArgs<Command> arg;
-                mtx.lock();
                 arg.term = current_term;
                 arg.leader_id = my_id;
                 // prev_log_index 应该是要处理的第一个日志的前一个日志的索引，而不是 leader 的最后一个日志的索引
                 // arg.prev_log_index = log_storage->prev_log_index();
                 // arg.prev_log_term = log_storage->prev_log_term();
                 arg.leader_commit = commit_index;
-                mtx.unlock();
 
                 // If last log index ≥ nextIndex for a follower: send AppendEntries RPC with log entries starting at nextIndex
                 for (int i = 0; i < node_configs.size(); i++)
@@ -1038,7 +1086,7 @@ namespace chfs
                         }
                         else
                         {
-                            mtx.lock();
+                            RAFT_LOG("Node %d save snapshot in run_background_commit, last_applied = %d, last_included_index = %d", my_id, last_applied, log_storage->last_included_index());
                             save_snapshot();
                             // 如果有未 apply 的日志，则将其放入 log_entries 中
                             if (log_storage->last_log_index() > log_storage->last_included_index())
@@ -1056,9 +1104,9 @@ namespace chfs
                             args.last_included_index = log_storage->last_included_index();
                             args.last_included_term = log_storage->last_included_term();
                             args.offset = 0;
-                            args.data = log_storage->get_snapshot_data();
+                            Snapshot log_snapshot = log_storage->get_snapshot();
+                            args.data = log_snapshot.data;
                             args.done = true;
-                            mtx.unlock();
 
                             RAFT_LOG("Node %d send install snapshot to node %d in run_background_commit", my_id, i);
                             thread_pool->enqueue([this, i, args]()
@@ -1102,14 +1150,16 @@ namespace chfs
                 mtx.lock();
                 for (int i = last_applied + 1; i <= commit_index; i++)
                 {
+                    RAFT_LOG("Apply log: term %d, index %d", log_storage->get_term(i), i);
                     Command cmd_entry = log_storage->get_command(i);
                     state->apply_log(cmd_entry);
-                    RAFT_LOG("Apply log: term %d, index %d, data %d", log_storage->get_term(i), i, cmd_entry.value);
+                    RAFT_LOG("Apply log success: term %d, index %d, data %d", log_storage->get_term(i), i, cmd_entry.value);
                 }
                 last_applied = commit_index;
-                // 每当数据长度大于 50 时，就保存一次快照
-                if (log_storage->last_log_index() - log_storage->last_included_index() > 50)
+                // 每当 apply 的数据长度大于 77 时，就保存一次快照
+                if (last_applied - log_storage->last_included_index() > 77)
                 {
+                    RAFT_LOG("Node %d save snapshot in run_background_apply, last_applied = %d, last_included_index = %d", my_id, last_applied, log_storage->last_included_index());
                     save_snapshot();
                 }
                 mtx.unlock();
