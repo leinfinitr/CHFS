@@ -184,6 +184,37 @@ namespace chfs
             election_timer = 0;
             last_ping_timer = 0;
         }
+
+        /**
+         * 从 log_storage 中恢复 snapshot
+         */
+        void recover_from_log_snapshot()
+        {
+            std::vector<int> store;
+            store.push_back(0);
+
+            Snapshot log_snapshot = log_storage->get_snapshot();
+            int size = log_snapshot.size;
+            int offset = 0;
+            while (offset < size)
+            {
+                std::vector<u8> tmp(log_snapshot.data.begin() + offset, log_snapshot.data.begin() + offset + 4);
+                Command cmd;
+                cmd.deserialize(tmp, cmd.size());
+                store.push_back(cmd.value);
+                offset += 4;
+            }
+
+            std::vector<u8> data;
+            std::stringstream ss;
+            ss << (int)store.size();
+            for (auto value : store)
+                ss << ' ' << value;
+            std::string str = ss.str();
+            data.assign(str.begin(), str.end());
+
+            state->apply_snapshot(data);
+        }
     };
 
     template <typename StateMachine, typename Command>
@@ -296,6 +327,10 @@ namespace chfs
 
         mtx.lock();
         log_storage->recover_from_disk();
+        recover_from_log_snapshot();
+        // 更新 last_applied 与 commit_index
+        last_applied = log_storage->last_included_index();
+        commit_index = log_storage->last_included_index();
         // 将 current_term 设置为 log_storage 中的最后一个 term，即在关闭之前的 term
         // 否则当多个 node 同时重启时，会出现新增 cmd 的 term 小于 log 中的 term 的情况
         current_term = log_storage->last_log_term();
@@ -382,6 +417,7 @@ namespace chfs
     {
         /* Lab3: Your code here */
         log_storage->save_snapshot(last_applied);
+        RAFT_LOG("Node %d save snapshot, last_applied: %d, last_included_index: %d", my_id, last_applied, log_storage->last_included_index());
         return true;
     }
 
@@ -713,7 +749,7 @@ namespace chfs
                 mtx.lock();
 
                 //  如果 next_index[node_id] - 1 <= log_storage->last_included_index()，则发送 snapshot
-                if(next_index[node_id] - 1 <= log_storage->last_included_index())
+                if (next_index[node_id] - 1 <= log_storage->last_included_index())
                 {
                     InstallSnapshotArgs arg;
                     arg.term = current_term;
@@ -799,32 +835,7 @@ namespace chfs
         log_storage->save_snapshot(args.last_included_index, args.last_included_term, snapshot);
 
         // Reset state machine using snapshot contents (and load snapshot’s cluster configuration)
-        // 此处需要将 log_storage 中的 snapshot 转换为 state 中的 snapshot
-        std::vector<int> store;
-        store.push_back(0);
-        
-        Snapshot log_snapshot = log_storage->get_snapshot();
-        int size = log_snapshot.size;
-        int offset = 0;
-        while (offset < size)
-        {
-            std::vector<u8> tmp(log_snapshot.data.begin() + offset, log_snapshot.data.begin() + offset + 4);
-            Command cmd;
-            cmd.deserialize(tmp, cmd.size());
-            store.push_back(cmd.value);
-            offset += 4;
-        }
-
-        std::vector<u8> data;
-        std::stringstream ss;
-        ss << (int)store.size();
-        for (auto value : store)
-            ss << ' ' << value;
-        std::string str = ss.str();
-        data.assign(str.begin(), str.end());
-
-        state->apply_snapshot(data);
-
+        recover_from_log_snapshot();
         // 更新 last_applied 与 commit_index
         last_applied = std::max(last_applied, args.last_included_index);
         commit_index = std::max(commit_index, args.last_included_index);
@@ -977,7 +988,7 @@ namespace chfs
                 if (leader_id == -1 || rpc_clients_map[leader_id] == nullptr || rpc_clients_map[leader_id]->get_connection_state() != rpc::client::connection_state::connected)
                 {
                     role = RaftRole::Candidate;
-                    
+
                     current_term++;
                     voted_for = my_id;
                     vote_count = 1;
@@ -1111,6 +1122,10 @@ namespace chfs
                             RAFT_LOG("Node %d send install snapshot to node %d in run_background_commit", my_id, i);
                             thread_pool->enqueue([this, i, args]()
                                                  { send_install_snapshot(i, args); });
+
+                            // 修改 next_index 和 match_index
+                            next_index[i] = log_storage->last_included_index() + 1;
+                            match_index[i] = log_storage->last_included_index();
                         }
 
                         RAFT_LOG("Node %d send append entries to node %d in run_background_commit ", my_id, i);
