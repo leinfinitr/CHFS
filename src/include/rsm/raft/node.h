@@ -813,10 +813,10 @@ namespace chfs
         }
 
         // Create a new snapshot if first chunk (offset is 0)
-        if (args.offset == 0)
-        {
-            snapshot.clear();
-        }
+        // if (args.offset == 0)
+        // {
+        //     snapshot.clear();
+        // }
         // Then write data into it at given offset
         if (args.offset + args.data.size() > snapshot.size())
         {
