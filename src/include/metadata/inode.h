@@ -33,6 +33,12 @@ enum class InodeType : u32 {
   Directory = 2,
 };
 
+struct block_attr{
+  block_id_t block_id;
+  mac_id_t mac_id;
+  version_t version;
+};
+
 class Inode;
 class FileOperation;
 
@@ -78,6 +84,7 @@ class Inode {
   friend class InodeIterator;
   friend class InodeManager;
   friend class FileOperation;
+  friend class MetadataServer;
 
   InodeType type;
   FileAttr inner_attr;
@@ -89,7 +96,8 @@ class Inode {
   // The actual number of blocks should be larger,
   // which is dynamically calculated based on the block size
 public:
-  [[maybe_unused]] block_id_t blocks[0];
+  [[maybe_unused]] block_id_t blocks[0];  // 不要动...
+  [[maybe_unused]] block_attr block_attrs[0];
 
 public:
   /**
@@ -101,6 +109,7 @@ public:
       : type(type), inner_attr(), block_size(block_size) {
     CHFS_VERIFY(block_size > sizeof(Inode), "Block size too small");
     nblocks = (block_size - sizeof(Inode)) / sizeof(block_id_t);
+    std::cout << "nblocks: " << nblocks << " block_size: " << block_size << " sizeof(Inode): " << sizeof(Inode) << std::endl;
     inner_attr.set_all_time(time(0));
   }
 

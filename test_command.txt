@@ -1,0 +1,2 @@
+"/home/stu/chfs/build/test/raft_test" "--gtest_filter=RaftTestPart1.LeaderElection" "--gtest_also_run_disabled_tests" "--gtest_color=auto" "--gtest_output=xml:/home/stu/chfs/build/test/raft_test.xml" "--gtest_catch_exceptions=0"
+"/home/stu/chfs/build/test/raft_test" "--gtest_filter=RaftTestPart1.ReElection" "--gtest_also_run_disabled_tests" "--gtest_color=auto" "--gtest_output=xml:/home/stu/chfs/build/test/raft_test.xml" "--gtest_catch_exceptions=0"

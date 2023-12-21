@@ -72,6 +72,7 @@ protected:
 TEST_F(DistributedClientTest, WriteAndThenRead) {
   auto inode = client->mknode(ChfsClient::FileType::REGULAR, 1, "test_file");
   EXPECT_EQ(inode.is_ok(), true);
+  std::cout << "Phase 1 - inode: " << inode.unwrap() << std::endl;
   auto inode_id = inode.unwrap();
   ASSERT_EQ(inode_id, 2);
 
@@ -79,10 +80,12 @@ TEST_F(DistributedClientTest, WriteAndThenRead) {
   // We choose to write 5 bytes between block 1 and block 2.
   auto file_offset = DiskBlockSize - 1;
   auto write_res = client->write_file(inode_id, file_offset, data);
+  std::cout<< "Phase 2 - write_res: " << write_res.is_ok() << std::endl;
   EXPECT_EQ(write_res.is_ok(), true);
 
   // Then read these bytes
   auto read_res = client->read_file(inode_id, file_offset, data.size());
+  std::cout << "Phase 3 - read_res: " << read_res.is_ok() << std::endl;
   EXPECT_EQ(read_res.is_ok(), true);
   EXPECT_EQ(read_res.unwrap(), data);
 }

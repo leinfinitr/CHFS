@@ -245,6 +245,8 @@ private:
   /**
    * {You can add anything you want here}
    */
+  std::mutex mknode_mutex;
+  std::mutex allo_mutex;
 };
 
 } // namespace chfs
