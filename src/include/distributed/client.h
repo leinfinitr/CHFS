@@ -133,6 +133,7 @@ public:
    *
    * @param id: The inode id of the file.
    * @param block_id: The block id of the block to be removed.
+   * @param mac_id: The mac id of the data server.
    */
   auto free_file_block(inode_id_t id, block_id_t block_id, mac_id_t mac_id)
       -> ChfsNullResult;

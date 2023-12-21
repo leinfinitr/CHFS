@@ -14,7 +14,7 @@ auto FileOperation::alloc_inode(InodeType type) -> ChfsResult<inode_id_t> {
   //    and write the block back to block manager.
   auto block_id = this->block_allocator_->allocate();
   if (block_id.is_err()) {
-    std::cout << "alloc_inode error" << std::endl;
+    // std::cout << "alloc_inode error" << std::endl;
     return ChfsResult<inode_id_t>(block_id.unwrap_error());
   }
   inode_res = this->inode_manager_->allocate_inode(type, block_id.unwrap());
@@ -123,14 +123,14 @@ auto FileOperation::write_file(inode_id_t id, const std::vector<u8> &content)
       //    You should pay attention to the case of indirect block.
       //    You may use function `get_or_insert_indirect_block`
       //    in the case of indirect block.
-      std::cout << "new_block_num > old_block_num, Allocate block: " << idx << std::endl;
+      // std::cout << "new_block_num > old_block_num, Allocate block: " << idx << std::endl;
       auto block_id = this->block_allocator_->allocate();
       if (block_id.is_err()) {
         error_code = block_id.unwrap_error();
         goto err_ret;
       }
       if (inode_p->is_direct_block(idx)) {
-        std::cout << "set_block_direct: " << idx << std::endl;
+        // std::cout << "set_block_direct: " << idx << std::endl;
         inode_p->set_block_direct(idx, block_id.unwrap());
       } else {
         auto res = inode_p->get_or_insert_indirect_block(
@@ -152,11 +152,11 @@ auto FileOperation::write_file(inode_id_t id, const std::vector<u8> &content)
     for (usize idx = new_block_num; idx < old_block_num; ++idx) {
       if (inode_p->is_direct_block(idx)) {
         // Free the direct extra block.
-        std::cout << "Free direct extra block: " << idx << std::endl;
+        // std::cout << "Free direct extra block: " << idx << std::endl;
         this->block_allocator_->deallocate((*inode_p)[idx]);
       } else {
         // Free the indirect extra block.
-        std::cout << "Free indirect extra block: " << idx << std::endl;
+        // std::cout << "Free indirect extra block: " << idx << std::endl;
         this->block_allocator_->deallocate(
             reinterpret_cast<block_id_t *>(indirect_block.data())[idx - inlined_blocks_num]);
       }
@@ -166,7 +166,7 @@ auto FileOperation::write_file(inode_id_t id, const std::vector<u8> &content)
     if (old_block_num > inlined_blocks_num &&
         new_block_num <= inlined_blocks_num && true) {
 
-      std::cout << "Free indirect block: " << inode_p->get_indirect_block_id() << std::endl;
+      // std::cout << "Free indirect block: " << inode_p->get_indirect_block_id() << std::endl;
       auto res =
           this->block_allocator_->deallocate(inode_p->get_indirect_block_id());
       if (res.is_err()) {
@@ -202,10 +202,10 @@ auto FileOperation::write_file(inode_id_t id, const std::vector<u8> &content)
       }
 
       // Write to current block.
-      std::cout << "Write current block: " << block_id << std::endl;
+      // std::cout << "Write current block: " << block_id << std::endl;
       auto write_res = this->block_manager_->write_block(block_id, buffer.data());
       if (write_res.is_err()) {
-        std::cout << "Error 1" << std::endl;
+        // std::cout << "Error 1" << std::endl;
         error_code = write_res.unwrap_error();
         goto err_ret;
       }
@@ -219,20 +219,20 @@ auto FileOperation::write_file(inode_id_t id, const std::vector<u8> &content)
   {
     inode_p->inner_attr.set_all_time(time(0));
 
-    std::cout << "Write attribute" << std::endl;
+    // std::cout << "Write attribute" << std::endl;
     auto write_res =
         this->block_manager_->write_block(inode_res.unwrap(), inode.data());
     if (write_res.is_err()) {
-      std::cout << "Error 2" << std::endl;
+      // std::cout << "Error 2" << std::endl;
       error_code = write_res.unwrap_error();
       goto err_ret;
     }
     if (indirect_block.size() != 0) {
-      std::cout << "Write indrect block" << std::endl;
+      // std::cout << "Write indrect block" << std::endl;
       write_res =
           inode_p->write_indirect_block(this->block_manager_, indirect_block);
       if (write_res.is_err()) {
-        std::cout << "Error 3" << std::endl;
+        // std::cout << "Error 3" << std::endl;
         error_code = write_res.unwrap_error();
         goto err_ret;
       }

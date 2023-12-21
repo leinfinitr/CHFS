@@ -122,7 +122,7 @@ namespace chfs
     this->log_block_cnt = 0;
     this->log_block_offset = 0;
     this->last_txn_id = 0;
-    std::cout << "log block start: " << this->log_block_start << " block cnt: " << this->block_cnt << std::endl;
+    // std::cout << "log block start: " << this->log_block_start << " block cnt: " << this->block_cnt << std::endl;
     for(usize i = 0; i < this->log_block_num; i++)
     {
       this->zero_block(this->log_block_start + i);
@@ -142,7 +142,7 @@ namespace chfs
   {
     if (this->log_block_cnt >= this->log_block_num)
     {
-      std::cout << "log block cnt is larger than log block num" << std::endl;
+      // std::cout << "log block cnt is larger than log block num" << std::endl;
       return ErrorType::INVALID;
     }
     // if(len > this->block_sz)
@@ -150,7 +150,7 @@ namespace chfs
     //   std::cout << "len is larger than block size" << std::endl;
     //   return ErrorType::INVALID;
     // }
-    std::cout << "log block cnt: " << this->log_block_cnt << " write size: " << len << std::endl;
+    // std::cout << "log block cnt: " << this->log_block_cnt << " write size: " << len << std::endl;
     usize last_space = block_sz - log_block_offset;
     if(len > last_space){
       memcpy(block_data + (log_block_start + log_block_cnt) * block_sz + log_block_offset, log_block_data, last_space);
@@ -207,7 +207,7 @@ namespace chfs
     {
       if (block_id >= log_block_start)
       {
-        std::cout << "Block id is larger than log block start id" << std::endl;
+        // std::cout << "Block id is larger than log block start id" << std::endl;
         return ErrorType::INVALID;
       }
 
@@ -215,7 +215,7 @@ namespace chfs
       memcpy(write_data.data(), data, this->block_sz);
       this->log_buffer[block_id] = write_data;
 
-      std::cout << "Write log: " << " block_id: " << block_id << " log buffer size: " << this->log_buffer.size() << std::endl;
+      // std::cout << "Write log: " << " block_id: " << block_id << " log buffer size: " << this->log_buffer.size() << std::endl;
     }
 
     // 此处的 write_fail_cnt >= 3 存在问题，将 maybe_failed 的判定放在 metedata_server 的 mknode 和 unlink 中
@@ -244,7 +244,7 @@ namespace chfs
     {
       if (block_id >= log_block_start)
       {
-        std::cout << "Block id is larger than log block start id" << std::endl;
+        // std::cout << "Block id is larger than log block start id" << std::endl;
         return ErrorType::INVALID;
       }
 
@@ -253,7 +253,7 @@ namespace chfs
       memcpy(write_data.data() + offset, data, len);
       this->log_buffer[block_id] = write_data;
 
-      std::cout << "Write log: " << " block_id: " << block_id << " log buffer size: " << this->log_buffer.size() << std::endl;
+      // std::cout << "Write log: " << " block_id: " << block_id << " log buffer size: " << this->log_buffer.size() << std::endl;
     }
 
     // if (this->maybe_failed && block_id < this->block_cnt)

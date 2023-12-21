@@ -6,17 +6,20 @@
 #include "librpc/server.h"
 #include "distributed/client.h"
 
-//Lab4: Free to modify this file
+// Lab4: Free to modify this file
 
-namespace mapReduce {
-    struct KeyVal {
+namespace mapReduce
+{
+    struct KeyVal
+    {
         KeyVal(const std::string &key, const std::string &val) : key(key), val(val) {}
-        KeyVal(){}
+        KeyVal() {}
         std::string key;
         std::string val;
     };
 
-    enum mr_tasktype {
+    enum mr_tasktype
+    {
         NONE = 0,
         MAP,
         REDUCE
@@ -29,7 +32,8 @@ namespace mapReduce {
     const std::string ASK_TASK = "ask_task";
     const std::string SUBMIT_TASK = "submit_task";
 
-    struct MR_CoordinatorConfig {
+    struct MR_CoordinatorConfig
+    {
         uint16_t port;
         std::string ip_address;
         std::string resultFile;
@@ -40,18 +44,20 @@ namespace mapReduce {
                                                        resultFile(resultFile), client(std::move(client)) {}
     };
 
-    class SequentialMapReduce {
+    class SequentialMapReduce
+    {
     public:
         SequentialMapReduce(std::shared_ptr<chfs::ChfsClient> client, const std::vector<std::string> &files, std::string resultFile);
         void doWork();
 
     private:
-        std::shared_ptr<chfs::ChfsClient> chfs_client;
-        std::vector<std::string> files;
-        std::string outPutFile;
+        std::shared_ptr<chfs::ChfsClient> chfs_client; // 保存所有文件内容的客户端
+        std::vector<std::string> files;                // 所有输入文件的文件名
+        std::string outPutFile;                        // 输出文件名
     };
 
-    class Coordinator {
+    class Coordinator
+    {
     public:
         Coordinator(MR_CoordinatorConfig config, const std::vector<std::string> &files, int nReduce);
         std::tuple<int, int> askTask(int);
@@ -65,7 +71,8 @@ namespace mapReduce {
         std::unique_ptr<chfs::RpcServer> rpc_server;
     };
 
-    class Worker {
+    class Worker
+    {
     public:
         explicit Worker(MR_CoordinatorConfig config);
         void doWork();

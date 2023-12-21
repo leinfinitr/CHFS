@@ -59,7 +59,7 @@ namespace chfs
     if (is_initialed)
     {
       auto origin_res = FileOperation::create_from_raw(block_manager);
-      std::cout << "Restarting..." << std::endl;
+      // std::cout << "Restarting..." << std::endl;
       if (origin_res.is_err())
       {
         std::cerr << "Original FS is bad, please remove files manually."
@@ -73,7 +73,7 @@ namespace chfs
     {
       operation_ = std::make_shared<FileOperation>(block_manager,
                                                    DistributedMaxInodeSupported);
-      std::cout << "We should init one new FS..." << std::endl;
+      // std::cout << "We should init one new FS..." << std::endl;
       /**
        * If the filesystem on metadata server is not initialized, create
        * a root directory.
@@ -144,13 +144,13 @@ namespace chfs
   {
     std::lock_guard<std::mutex> lock(mknode_mutex);
     // allocate inode
-    std::cout << "mk_helper" << std::endl;
+    // std::cout << "mk_helper" << std::endl;
     auto allo_res = operation_->mk_helper(parent, name.c_str(), InodeType(type));
 
     // write log
     if (is_log_enabled_)
     {
-      std::cout << "\nwriting log ..." << std::endl;
+      // std::cout << "\nwriting log ..." << std::endl;
 
       std::vector<std::shared_ptr<BlockOperation>> ops;
       for (auto log : operation_->block_manager_->log_buffer)
@@ -161,24 +161,24 @@ namespace chfs
         ops.push_back(op);
       }
 
-      std::cout << "log_buffer size: " << operation_->block_manager_->log_buffer.size() << std::endl;
-      std::cout << "log_buffer: " << std::endl;
-      for (auto log : operation_->block_manager_->log_buffer)
-      {
-        std::cout << log.first << " " << log.second.size() << std::endl;
-      }
-      std::cout << "ops size: " << ops.size() << std::endl;
-      std::cout << "ops: " << std::endl;
-      for (auto op : ops)
-      {
-        std::cout << op->block_id_ << " " << op->new_block_state_.size() << std::endl;
-      }
+      // std::cout << "log_buffer size: " << operation_->block_manager_->log_buffer.size() << std::endl;
+      // std::cout << "log_buffer: " << std::endl;
+      // for (auto log : operation_->block_manager_->log_buffer)
+      // {
+      //   std::cout << log.first << " " << log.second.size() << std::endl;
+      // }
+      // std::cout << "ops size: " << ops.size() << std::endl;
+      // std::cout << "ops: " << std::endl;
+      // for (auto op : ops)
+      // {
+      //   std::cout << op->block_id_ << " " << op->new_block_state_.size() << std::endl;
+      // }
 
       commit_log->append_log(operation_->block_manager_->last_txn_id, ops);
       operation_->block_manager_->log_buffer.clear();
       operation_->block_manager_->last_txn_id += 1;
 
-      std::cout << "commit_log"<< std::endl;
+      // std::cout << "commit_log"<< std::endl;
     }
 
     if (allo_res.is_err())
@@ -188,7 +188,7 @@ namespace chfs
     if(this->may_failed_)
       return 0;
     auto inode = allo_res.unwrap();
-    std::cout << "inode: " << inode << std::endl;
+    // std::cout << "inode: " << inode << std::endl;
 
     return inode;
   }
@@ -214,7 +214,7 @@ namespace chfs
       operation_->block_manager_->log_buffer.clear();
       operation_->block_manager_->last_txn_id += 1;
 
-      std::cout << "commit_log..." << std::endl;
+      // std::cout << "commit_log..." << std::endl;
     }
 
     if (res.is_err())
@@ -274,7 +274,7 @@ namespace chfs
     std::lock_guard<std::mutex> lock(allo_mutex);
     // 读取 inode
     auto inode_block_id = operation_->inode_manager_->get(id).unwrap();
-    std::cout << "inode_block_id: " << inode_block_id << std::endl;
+    // std::cout << "inode_block_id: " << inode_block_id << std::endl;
     u8 *data = new chfs::u8[operation_->block_manager_->block_size()];
     auto read_res = operation_->block_manager_->read_block(inode_block_id, data);
     if (read_res.is_err())
@@ -302,14 +302,14 @@ namespace chfs
         if (block_id_pos >= inode->get_nblocks())
         {
           // inode 中的 block 不够用了，需要分配新的 block
-          std::cout << "The inode is full, need to allocate new block." << std::endl;
+          // std::cout << "The inode is full, need to allocate new block." << std::endl;
           return {};
         }
 
         // 更新 inode block
         inode->block_attrs[block_id_pos] = block_attr{allo_block_id, client.first, version};
         inode->inner_attr.size += operation_->block_manager_->block_size();
-        std::cout << "block_id_pos: " << block_id_pos << " allo_block_id: " << allo_block_id << " " << inode->block_attrs[block_id_pos].block_id << " block size: " << inode->inner_attr.size << std::endl;
+        // std::cout << "block_id_pos: " << block_id_pos << " allo_block_id: " << allo_block_id << " " << inode->block_attrs[block_id_pos].block_id << " block size: " << inode->inner_attr.size << std::endl;
 
         // 将 inode block 写回
         auto write_res = operation_->block_manager_->write_block(inode_block_id, data);
@@ -366,7 +366,7 @@ namespace chfs
         }
       }
       inode->inner_attr.size -= operation_->block_manager_->block_size();
-      std::cout << "free block: " << block_id << " block size: " << inode->inner_attr.size << std::endl;
+      // std::cout << "free block: " << block_id << " block size: " << inode->inner_attr.size << std::endl;
       auto write_res = operation_->block_manager_->write_block(inode_block_id, data);
 
       // auto read_res = operation_->block_manager_->read_block(inode_block_id, data);
@@ -378,7 +378,7 @@ namespace chfs
         return {};
       }
       success = true;
-      std::cout << "free block success" << std::endl;
+      // std::cout << "free block success" << std::endl;
     }
 
     delete[] data;

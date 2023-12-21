@@ -119,11 +119,11 @@ namespace chfs
     // 从 metadata server 得到 block map
     auto call_res = metadata_server_->call("get_block_map", id);
     auto res = call_res.unwrap()->as<std::vector<BlockInfo>>();
-    std::cout << "\nread file: " << id << " offset: " << offset << " size: " << size << std::endl;
-    for (auto info : res)
-    {
-      std::cout << "block_id: " << std::get<0>(info) << " mac_id: " << std::get<1>(info) << " version: " << std::get<2>(info) << std::endl;
-    }
+    // std::cout << "\nread file: " << id << " offset: " << offset << " size: " << size << std::endl;
+    // for (auto info : res)
+    // {
+    //   std::cout << "block_id: " << std::get<0>(info) << " mac_id: " << std::get<1>(info) << " version: " << std::get<2>(info) << std::endl;
+    // }
     if (res.size() == 0)
     {
       return ChfsResult<std::vector<u8>>(ErrorType::NotExist);
@@ -148,7 +148,7 @@ namespace chfs
         block_id_t block_id = std::get<0>(block_info);
         mac_id_t mac_id = std::get<1>(block_info);
         version_t version = std::get<2>(block_info);
-        std::cout << "read block_id: " << block_id << " mac_id: " << mac_id << " version: " << version << std::endl;
+        // std::cout << "read block_id: " << block_id << " mac_id: " << mac_id << " version: " << version << std::endl;
         // 遍历 data_servers_ 以找到 mac_id 对应的 data server，从 data server 读取数据
         for (auto client : data_servers_)
         {
@@ -168,7 +168,7 @@ namespace chfs
             auto read_size_this = std::min(size - read_size, 4096 - read_block_offset);
 
             // 从 data server 读取数据
-            std::cout << "read_size_this: " << read_size_this << " read_block_offset: " << read_block_offset << std::endl;
+            // std::cout << "read_size_this: " << read_size_this << " read_block_offset: " << read_block_offset << std::endl;
             auto call_res = client.second->call("read_data", block_id, read_block_offset, read_size_this, version);
             auto res = call_res.unwrap()->as<std::vector<u8>>();
             if (res.size() == 0)
@@ -179,7 +179,7 @@ namespace chfs
             {
               result.insert(result.end(), res.begin(), res.end());
             }
-            std::cout << "res.size(): " << res.size() << " result.size(): " << result.size() << std::endl;
+            // std::cout << "res.size(): " << res.size() << " result.size(): " << result.size() << std::endl;
             read_size += read_size_this;
           }
         }
@@ -211,7 +211,7 @@ namespace chfs
       }
 
       // 得到需要写入的 block 的信息
-      std::cout << "block_id: " << std::get<0>(block_info) << " mac_id: " << std::get<1>(block_info) << " version: " << std::get<2>(block_info) << std::endl;
+      // std::cout << "block_id: " << std::get<0>(block_info) << " mac_id: " << std::get<1>(block_info) << " version: " << std::get<2>(block_info) << std::endl;
       block_id_t block_id = std::get<0>(block_info);
       mac_id_t mac_id = std::get<1>(block_info);
       if (mac_id == 0)
@@ -246,7 +246,7 @@ namespace chfs
           {
             return ChfsNullResult(ErrorType::NotExist);
           }
-          std::cout << "write_data: " << block_id << " " << write_block_offset << " " << write_data.size() << std::endl;
+          // std::cout << "write_data: " << block_id << " " << write_block_offset << " " << write_data.size() << std::endl;
           write_size += write_size_this;
         }
       }
@@ -255,7 +255,7 @@ namespace chfs
     // 如果还有数据没有写入，需要分配新的 block
     while (write_size < size)
     {
-      std::cout << "Allocate new block - write size:  " << write_size << " size: " << size << std::endl;
+      // std::cout << "Allocate new block - write size:  " << write_size << " size: " << size << std::endl;
       // 计算还需要多少个 block
       auto block_num = (size - write_size) / 4096;
       if ((size - write_size) % 4096 != 0)
@@ -272,7 +272,7 @@ namespace chfs
         // 得到新分配的 block 的信息
         block_id_t block_id = std::get<0>(res);
         mac_id_t mac_id = std::get<1>(res);
-        std::cout << "allocate block_id: " << std::get<0>(res) << " mac_id: " << std::get<1>(res) << " version: " << std::get<2>(res) << std::endl;
+        // std::cout << "allocate block_id: " << std::get<0>(res) << " mac_id: " << std::get<1>(res) << " version: " << std::get<2>(res) << std::endl;
 
         // 遍历 data_servers_ 以找到 mac_id 对应的 data server，向 data server 写入数据
         for (auto client : data_servers_)
@@ -301,7 +301,7 @@ namespace chfs
             {
               return ChfsNullResult(ErrorType::NotExist);
             }
-            std::cout << "write_data: " << block_id << " " << write_block_offset << " " << write_data.size() << std::endl;
+            // std::cout << "write_data: " << block_id << " " << write_block_offset << " " << write_data.size() << std::endl;
             write_size += write_size_this;
           }
         }

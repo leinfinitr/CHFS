@@ -141,13 +141,13 @@ auto FileOperation::mk_helper(inode_id_t id, const char *name, InodeType type)
   data = append_to_directory(data, name, inode);
   std::vector<u8> vec(data.begin(), data.end());
   
-  std::cout << "write_file: " << id << std::endl;
+  // std::cout << "write_file: " << id << std::endl;
   auto write_res = write_file(id, vec);
   if (write_res.is_err()) {
     return ChfsResult<inode_id_t>(ErrorType::OUT_OF_RESOURCE);
   }
 
-  std::cout << "mk_helper success, inode = " << inode << std::endl;
+  // std::cout << "mk_helper success, inode = " << inode << std::endl;
   return ChfsResult<inode_id_t>(inode);
 }
 

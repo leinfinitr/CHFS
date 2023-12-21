@@ -109,7 +109,7 @@ public:
       : type(type), inner_attr(), block_size(block_size) {
     CHFS_VERIFY(block_size > sizeof(Inode), "Block size too small");
     nblocks = (block_size - sizeof(Inode)) / sizeof(block_id_t);
-    std::cout << "nblocks: " << nblocks << " block_size: " << block_size << " sizeof(Inode): " << sizeof(Inode) << std::endl;
+    // std::cout << "nblocks: " << nblocks << " block_size: " << block_size << " sizeof(Inode): " << sizeof(Inode) << std::endl;
     inner_attr.set_all_time(time(0));
   }
 
