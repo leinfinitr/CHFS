@@ -25,7 +25,6 @@ namespace mapReduce
     {
         // Your code goes here
         // Hints: split contents into an array of words.
-        std::vector<KeyVal> ret;
 
         // 将 content 按照分割为单词
         std::vector<std::string> words;
@@ -76,6 +75,7 @@ namespace mapReduce
                   { return a.first < b.first; });
 
         // 将 vector 转换为 KeyVal
+        std::vector<KeyVal> ret;
         for (auto it = result.begin(); it != result.end(); it++)
         {
             ret.push_back(KeyVal(it->first, std::to_string(it->second)));

@@ -77,11 +77,11 @@ namespace mapReduce
 				buffer << f.rdbuf();
 				std::string file_content = buffer.str();
 				auto res_create = client->mknode(chfs::ChfsClient::FileType::REGULAR, 1, file);
-				std::cout << "create file " << file << std::endl;
+				// std::cout << "create file " << file << std::endl;
 				auto inode_id = res_create.unwrap();
 				std::vector<uint8_t> vec(file_content.begin(), file_content.end());
 				client->write_file(inode_id, 0, vec);
-				std::cout << "write file " << file << std::endl;
+				// std::cout << "write file " << file << std::endl;
 			}
 			{
 				std::ifstream f(relative_path_to_novels + "mr-wc-correct");

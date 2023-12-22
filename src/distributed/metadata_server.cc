@@ -59,7 +59,7 @@ namespace chfs
     if (is_initialed)
     {
       auto origin_res = FileOperation::create_from_raw(block_manager);
-      // std::cout << "Restarting..." << std::endl;
+      std::cout << "Restarting..." << std::endl;
       if (origin_res.is_err())
       {
         std::cerr << "Original FS is bad, please remove files manually."
@@ -73,7 +73,7 @@ namespace chfs
     {
       operation_ = std::make_shared<FileOperation>(block_manager,
                                                    DistributedMaxInodeSupported);
-      // std::cout << "We should init one new FS..." << std::endl;
+      std::cout << "We should init one new FS..." << std::endl;
       /**
        * If the filesystem on metadata server is not initialized, create
        * a root directory.

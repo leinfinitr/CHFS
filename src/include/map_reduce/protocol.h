@@ -44,6 +44,21 @@ namespace mapReduce
                                                        resultFile(resultFile), client(std::move(client)) {}
     };
 
+    struct TaskArgs
+    {
+        int taskType;
+        // 当 taskType 为 MAP 时，fileIndex 为文件编号，fileName 为文件名
+        // 当 taskType 为 REDUCE 时，fileIndex 为 reduce 任务编号，fileName 为文件数
+        int fileIndex;
+        std::string fileName;
+
+        MSGPACK_DEFINE(
+            taskType,
+            fileIndex,
+            fileName
+        )
+    };
+
     class SequentialMapReduce
     {
     public:
@@ -59,16 +74,22 @@ namespace mapReduce
     class Coordinator
     {
     public:
-        Coordinator(MR_CoordinatorConfig config, const std::vector<std::string> &files, int nReduce);
-        std::tuple<int, int> askTask(int);
-        int submitTask(int taskType, int index);
+        Coordinator(MR_CoordinatorConfig config, const std::vector<std::string> &files, int workerNum);
+        TaskArgs askTask();
+        int submitTask(int taskType);
         bool Done();
+        void run();
 
     private:
-        std::vector<std::string> files;
+        std::vector<std::string> files; // 所有输入文件的文件名
         std::mutex mtx;
         bool isFinished;
-        std::unique_ptr<chfs::RpcServer> rpc_server;
+        std::unique_ptr<chfs::RpcServer> rpc_server; // 用于接收 Worker 的 RPC 请求
+
+        int mapTasksRemaining;    // 剩余的 Map 任务数，初始与文件数相同
+        int reduceTasksRemaining; // 剩余的 Reduce 任务数，初始与 Worker 的数量相同
+
+        int workerNum; // Worker 的数量
     };
 
     class Worker
@@ -80,8 +101,8 @@ namespace mapReduce
 
     private:
         void doMap(int index, const std::string &filename);
-        void doReduce(int index, int nfiles);
-        void doSubmit(mr_tasktype taskType, int index);
+        void doReduce(int mapTaskCount, int Y);
+        void doSubmit(int taskType);
 
         std::string outPutFile;
         std::unique_ptr<chfs::RpcClient> mr_client;
