@@ -23,19 +23,29 @@ namespace mapReduce
      */
     void Worker::doWork()
     {
-        std::cout << "Worker: Start working..." << std::endl;
+        // std::cout << "Worker: Start working..." << std::endl;
         while (!shouldStop)
         {
-            std::cout << "Worker: Ask task..." << std::endl;
+            // std::cout << "Worker: Ask task..." << std::endl;
             // Lab4: Your code goes here.
             auto res_ask = mr_client->call(ASK_TASK);
             auto taskArgs = res_ask.unwrap()->as<TaskArgs>();
-            std::cout << "Worker: Get task " << taskArgs.taskType << " " << taskArgs.fileIndex << " " << taskArgs.fileName << std::endl;
-            if(taskArgs.taskType == NONE)
+            // std::cout << "Worker: Get task " << taskArgs.taskType << " " << taskArgs.fileIndex << " " << taskArgs.fileName << std::endl;
+            if (taskArgs.taskType == NONE)
             {
-                std::cout << "Worker: No task, sleep 10ms" << std::endl;
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                continue;
+                // 如果是在等待所有的 MAP 任务完成，则等待 10ms
+                if (taskArgs.fileName == std::to_string(MAP))
+                {
+                    // std::cout << "Worker: Wait for all map tasks done, sleep 10ms" << std::endl;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                    continue;
+                }
+                // 如果是在等待所有的 REDUCE 任务完成，则关闭 worker
+                else if (taskArgs.fileName == std::to_string(REDUCE))
+                {
+                    // std::cout << "Worker: Wait for all reduce tasks done, stop worker" << std::endl;
+                    break;
+                }
             }
             if (taskArgs.taskType == MAP)
             {
@@ -56,7 +66,7 @@ namespace mapReduce
      */
 
     /**
-     * 根据文件名读取文件内容，记录单词出现次数，将结果写入四个不同的文件
+     * 根据文件名读取文件内容，将文件内容按照首字母 Hash 到四个不同的文件中
      * @param mapTaskIndex Map 任务编号
      * @param filename 文件名
      */
@@ -72,69 +82,36 @@ namespace mapReduce
         auto char_vec = res_read.unwrap();
         std::string content(char_vec.begin(), char_vec.end());
 
-        // 统计单词出现次数
-        std::map<std::string, int> wordCount;
-        std::string word;
-        for (auto c : content)
-        {
-            // 只要 c 不是字母，则将之前的所有字母的组合视为 word
-            if (!isalpha(c))
-            {
-                if (!word.empty())
-                {
-                    // 查找单词是否已经在map中
-                    std::map<std::string, int>::iterator it = wordCount.find(word);
-                    // 如果单词已经在map中，则增加其计数
-                    if (it != wordCount.end())
-                    {
-                        it->second++;
-                    }
-                    else
-                    {
-                        // 否则，将单词插入map，并设置计数为1
-                        wordCount.insert(std::make_pair(word, 1));
-                    }
+        // 调用 Map 函数
+        std::vector<KeyVal> kvs = Map(content);
 
-                    word.clear();
-                }
-            }
-            else
-            {
-                word.push_back(c);
-            }
-        }
-
-        /**
-         * 将结果写入四个不同的文件
-         * 文件名为 mr-X-Y，其中 X 为文件编号，Y 为 0~3
-         * 文件内容为单词和其出现次数，以空格分隔，每个单词一行
-         * 字母 a-g 和 A-G 开头的单词写入 mr-X-0
-         * 字母 h-n 和 H-N 开头的单词写入 mr-X-1
-         * 字母 o-t 和 O-T 开头的单词写入 mr-X-2
-         * 字母 u-z 和 U-Z 开头的单词写入 mr-X-3
-         */
+        // 根据首字母 Hash 到四个不同的文件中
         std::string content0, content1, content2, content3;
-        for (auto it = wordCount.begin(); it != wordCount.end(); it++)
+        for (auto kv : kvs)
         {
-            std::string word = it->first;
-            int count = it->second;
-            if ((word[0] >= 'a' && word[0] <= 'g') || (word[0] >= 'A' && word[0] <= 'G'))
+            std::string key = kv.key;
+            std::string value = kv.val;
+
+            int hash = key[0] % 4;
+            if (hash == 0)
             {
-                content0 += word + " " + std::to_string(count) + "\n";
+                content0 += key + " " + value + "\n";
             }
-            else if ((word[0] >= 'h' && word[0] <= 'n') || (word[0] >= 'H' && word[0] <= 'N'))
+            else if (hash == 1)
             {
-                content1 += word + " " + std::to_string(count) + "\n";
+                content1 += key + " " + value + "\n";
             }
-            else if ((word[0] >= 'o' && word[0] <= 't') || (word[0] >= 'O' && word[0] <= 'T'))
+            else if (hash == 2)
             {
-                content2 += word + " " + std::to_string(count) + "\n";
+                content2 += key + " " + value + "\n";
             }
-            else if ((word[0] >= 'u' && word[0] <= 'z') || (word[0] >= 'U' && word[0] <= 'Z'))
+            else if (hash == 3)
             {
-                content3 += word + " " + std::to_string(count) + "\n";
+                content3 += key + " " + value + "\n";
             }
         }
+
+        // 保存到文件中
         std::vector<chfs::u8> content_vec0(content0.begin(), content0.end());
         std::vector<chfs::u8> content_vec1(content1.begin(), content1.end());
         std::vector<chfs::u8> content_vec2(content2.begin(), content2.end());
@@ -149,7 +126,7 @@ namespace mapReduce
         chfs_client->write_file(output_inode_id3, 0, content_vec3);
 
         // 提交任务
-        std::cout << "Worker: Submit task file " << mapTaskIndex << " " << filename << std::endl;
+        // std::cout << "Worker: Submit task file " << mapTaskIndex << " " << filename << std::endl;
         doSubmit(MAP);
     }
 
@@ -161,8 +138,9 @@ namespace mapReduce
     void Worker::doReduce(int mapTaskCount, int Y)
     {
         // Lab4: Your code goes here.
+        std::unordered_map<std::string, std::vector<std::string>> wordCount;
+
         // 读取中间文件内容
-        std::unordered_map<std::string, int> wordCount;
         for (int i = 0; i < mapTaskCount; i++)
         {
             std::string filename = "mr-" + std::to_string(i) + "-" + std::to_string(Y);
@@ -173,41 +151,46 @@ namespace mapReduce
             auto res_read = chfs_client->read_file(inode_id, 0, length);
             auto char_vec = res_read.unwrap();
             std::string content(char_vec.begin(), char_vec.end());
+            // 删除 content 中的空字符
+            content.erase(std::remove(content.begin(), content.end(), '\0'), content.end());
 
             // 统计单词出现次数
-            std::string word;
-            int count;
+            std::string word, count;
             std::stringstream stringstream(content);
             while (stringstream >> word >> count)
             {
                 // 查找单词是否已经在map中
-                std::unordered_map<std::string, int>::iterator it = wordCount.find(word);
+                std::unordered_map<std::string, std::vector<std::string>>::iterator it = wordCount.find(word);
                 // 如果单词已经在map中，则增加其计数
                 if (it != wordCount.end())
                 {
-                    it->second += count;
+                    it->second.push_back(count);
                 }
                 else
                 {
-                    // 否则，将单词插入map，并设置计数为1
-                    wordCount.insert(std::make_pair(word, count));
+                    // 否则，将单词插入map
+                    wordCount.insert(std::make_pair(word, std::vector<std::string>{count}));
                 }
             }
         }
 
-        // 将结果写入文件
-        std::string content;
+        // 调用 Reduce 函数
+        std::string result;
         for (auto it = wordCount.begin(); it != wordCount.end(); it++)
         {
             std::string word = it->first;
-            int count = it->second;
-            content += word + " " + std::to_string(count) + "\n";
+            std::vector<std::string> counts = it->second;
+            std::string count = Reduce(word, counts);
+            result += word + " " + count + "\n";
         }
-        std::vector<chfs::u8> content_vec(content.begin(), content.end());
+
+        // 将结果写入文件
+        std::vector<chfs::u8> content_vec(result.begin(), result.end());
         auto output_inode_id = chfs_client->mknode(chfs::ChfsClient::FileType::REGULAR, 1, "mr-" + std::to_string(Y)).unwrap();
         chfs_client->write_file(output_inode_id, 0, content_vec);
 
         // 提交任务
+        // std::cout << "Worker: Submit intermediate task file " << Y << std::endl;
         doSubmit(REDUCE);
     }
 

@@ -17,7 +17,7 @@ namespace mapReduce
     //
 
     /**
-     * Word Count 的 Map 函数，输入为文件内容，输出为单词及其出现次数，并且已经按照字母表顺序排序
+     * Word Count 的 Map 函数，输入为文件内容，输出为单词及其出现次数
      * @param content 文件内容
      * @return std::vector<KeyVal>，key 为单词，value 为出现次数
      */
@@ -29,7 +29,7 @@ namespace mapReduce
         // 将 content 按照分割为单词
         std::vector<std::string> words;
         std::string word;
-        std::cout << "Map: Splitting words..." << std::endl;
+        // std::cout << "Map: Splitting words..." << std::endl;
         for (auto c : content)
         {
             // 只要 c 不是字母，则将之前的所有字母的组合视为 word 放入 words 中
@@ -48,7 +48,7 @@ namespace mapReduce
         }
 
         // 统计单词出现次数
-        std::cout << "Map: Counting words..." << std::endl;
+        // std::cout << "Map: Counting words..." << std::endl;
         std::map<std::string, int> wordCount;
         for (auto word : words)
         {
@@ -69,11 +69,6 @@ namespace mapReduce
         // 将 map 转换为 vector
         std::vector<std::pair<std::string, int>> result(wordCount.begin(), wordCount.end());
 
-        // 将 vector 按照字母表顺序排序
-        std::cout << "Map: Sorting words..." << std::endl;
-        std::sort(result.begin(), result.end(), [](const std::pair<std::string, int> &a, const std::pair<std::string, int> &b)
-                  { return a.first < b.first; });
-
         // 将 vector 转换为 KeyVal
         std::vector<KeyVal> ret;
         for (auto it = result.begin(); it != result.end(); it++)
@@ -93,11 +88,11 @@ namespace mapReduce
     {
         // Your code goes here
         // Hints: return the number of occurrences of the word.
-        std::string ret = "0";
+        std::string count = "0";
         for (auto value : values)
         {
-            ret = std::to_string(std::stoi(ret) + std::stoi(value));
+            count = std::to_string(std::stoi(count) + std::stoi(value));
         }
-        return ret;
+        return count;
     }
 }

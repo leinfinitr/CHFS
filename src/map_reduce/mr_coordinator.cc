@@ -26,44 +26,46 @@ namespace mapReduce
     TaskArgs Coordinator::askTask()
     {
         // Lab4 : Your code goes here.
-        std::cout << "Coordinator: Ask task..." << std::endl;
-        // Free to change the type of return value.
         std::unique_lock<std::mutex> lock(mtx);
         if (mapTasksRemaining > 0)
         {
             int fileIndex = mapTaskNum - mapTasksRemaining;
             std::string fileName = files[fileIndex];
             mapTasksRemaining--;
-            std::cout << "Coordinator: Assign map task " << fileIndex << " " << fileName << std::endl;
+            // std::cout << "Coordinator: Assign map task " << fileIndex << " " << fileName << std::endl;
             return TaskArgs{MAP, fileIndex, fileName};
         }
         else if (finishedMapTasks == mapTaskNum && reduceTasksRemaining > 0)
         {
             int reduceIndex = reduceTaskNum - reduceTasksRemaining;
             reduceTasksRemaining--;
-            std::cout << "Coordinator: Assign reduce task " << reduceIndex << std::endl;
+            // std::cout << "Coordinator: Assign reduce task " << reduceIndex << std::endl;
             return TaskArgs{REDUCE, reduceIndex, std::to_string(mapTaskNum)};
         }
-        return TaskArgs{NONE, -1, ""};
+        if (reduceTasksRemaining > 0)
+            return TaskArgs{NONE, -1, std::to_string(MAP)};
+        else
+            return TaskArgs{NONE, -1, std::to_string(REDUCE)};
     }
 
     int Coordinator::submitTask(int taskType)
     {
         // Lab4 : Your code goes here.
-        std::cout << "Coordinator: Submit task..." << std::endl;
         std::unique_lock<std::mutex> lock(mtx);
         if (taskType == MAP)
         {
+            // std::cout << "Coordinator: Map task done" << std::endl;
             finishedMapTasks++;
         }
         else if (taskType == REDUCE)
         {
+            // std::cout << "Coordinator: Reduce task done" << std::endl;
             finishedReduceTasks++;
         }
         if (finishedMapTasks == mapTaskNum && finishedReduceTasks == reduceTaskNum)
         {
             // 将中间文件合并
-            std::cout << "Coordinator: Merge intermediate files..." << std::endl;
+            // std::cout << "Coordinator: Merge intermediate files..." << std::endl;
             std::string content;
             for (int i = 0; i < reduceTaskNum; i++)
             {
@@ -74,15 +76,19 @@ namespace mapReduce
                 auto length = res_type.unwrap().second.size;
                 auto res_read = chfs_client->read_file(inode_id, 0, length);
                 auto char_vec = res_read.unwrap();
+                // std::cout << "Coordinator: Read file " << filename << " size " << length << std::endl;
                 std::string fileContent(char_vec.begin(), char_vec.end());
+                // 删除 fileContent 中的空字符
+                fileContent.erase(std::remove(fileContent.begin(), fileContent.end(), '\0'), fileContent.end());
                 content += fileContent;
             }
-            auto res_create = chfs_client->mknode(chfs::ChfsClient::FileType::REGULAR, 1, outPutFile);
+            auto res_create = chfs_client->lookup(1, outPutFile);
             auto output_inode_id = res_create.unwrap();
             std::vector<chfs::u8> content_vec(content.begin(), content.end());
+            // std::cout << "Coordinator: Write file " << outPutFile << " length " << content_vec.size() << std::endl;
             chfs_client->write_file(output_inode_id, 0, content_vec);
 
-            std::cout << "Coordinator: Merge intermediate files done" << std::endl;
+            // std::cout << "Coordinator: Merge intermediate files done" << std::endl;
 
             isFinished = true;
         }

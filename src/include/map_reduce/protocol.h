@@ -64,6 +64,8 @@ namespace mapReduce
     public:
         SequentialMapReduce(std::shared_ptr<chfs::ChfsClient> client, const std::vector<std::string> &files, std::string resultFile);
         void doWork();
+        void doMap();
+        void doReduce();
 
     private:
         std::shared_ptr<chfs::ChfsClient> chfs_client; // 保存所有文件内容的客户端
