@@ -4,6 +4,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <chrono>
+#include <thread>
 
 #include <mutex>
 #include <string>
@@ -21,11 +23,20 @@ namespace mapReduce
      */
     void Worker::doWork()
     {
+        std::cout << "Worker: Start working..." << std::endl;
         while (!shouldStop)
         {
+            std::cout << "Worker: Ask task..." << std::endl;
             // Lab4: Your code goes here.
-            auto res_ask = mr_client->call("ask_task");
+            auto res_ask = mr_client->call(ASK_TASK);
             auto taskArgs = res_ask.unwrap()->as<TaskArgs>();
+            std::cout << "Worker: Get task " << taskArgs.taskType << " " << taskArgs.fileIndex << " " << taskArgs.fileName << std::endl;
+            if(taskArgs.taskType == NONE)
+            {
+                std::cout << "Worker: No task, sleep 10ms" << std::endl;
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                continue;
+            }
             if (taskArgs.taskType == MAP)
             {
                 doMap(taskArgs.fileIndex, taskArgs.fileName);
@@ -138,6 +149,7 @@ namespace mapReduce
         chfs_client->write_file(output_inode_id3, 0, content_vec3);
 
         // 提交任务
+        std::cout << "Worker: Submit task file " << mapTaskIndex << " " << filename << std::endl;
         doSubmit(MAP);
     }
 
@@ -192,7 +204,7 @@ namespace mapReduce
             content += word + " " + std::to_string(count) + "\n";
         }
         std::vector<chfs::u8> content_vec(content.begin(), content.end());
-        auto output_inode_id = chfs_client->mknode(chfs::ChfsClient::FileType::REGULAR, 1, "mr-out-" + std::to_string(Y)).unwrap();
+        auto output_inode_id = chfs_client->mknode(chfs::ChfsClient::FileType::REGULAR, 1, "mr-" + std::to_string(Y)).unwrap();
         chfs_client->write_file(output_inode_id, 0, content_vec);
 
         // 提交任务
@@ -202,7 +214,7 @@ namespace mapReduce
     void Worker::doSubmit(int taskType)
     {
         // Lab4: Your code goes here.
-        mr_client->call("submit_task", taskType);
+        mr_client->call(SUBMIT_TASK, taskType);
     }
 
     void Worker::stop()

@@ -78,16 +78,21 @@ namespace mapReduce
         TaskArgs askTask();
         int submitTask(int taskType);
         bool Done();
-        void run();
 
     private:
         std::vector<std::string> files; // 所有输入文件的文件名
         std::mutex mtx;
         bool isFinished;
         std::unique_ptr<chfs::RpcServer> rpc_server; // 用于接收 Worker 的 RPC 请求
+        std::string outPutFile;                      // 输出文件名
+        std::shared_ptr<chfs::ChfsClient> chfs_client;
 
         int mapTasksRemaining;    // 剩余的 Map 任务数，初始与文件数相同
         int reduceTasksRemaining; // 剩余的 Reduce 任务数，初始与 Worker 的数量相同
+        int finishedMapTasks;     // 已完成的 Map 任务数
+        int finishedReduceTasks;  // 已完成的 Reduce 任务数
+        int mapTaskNum;           // Map 任务的数量
+        int reduceTaskNum;        // Reduce 任务的数量
 
         int workerNum; // Worker 的数量
     };
