@@ -33,11 +33,11 @@ namespace mapReduce
             // std::cout << "Worker: Get task " << taskArgs.taskType << " " << taskArgs.fileIndex << " " << taskArgs.fileName << std::endl;
             if (taskArgs.taskType == NONE)
             {
-                // 如果是在等待所有的 MAP 任务完成，则等待 10ms
+                // 如果是在等待所有的 MAP 任务完成，则等待 20ms
                 if (taskArgs.fileName == std::to_string(MAP))
                 {
-                    // std::cout << "Worker: Wait for all map tasks done, sleep 10ms" << std::endl;
-                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                    // std::cout << "Worker: Wait for all map tasks done, sleep 20ms" << std::endl;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(20));
                     continue;
                 }
                 // 如果是在等待所有的 REDUCE 任务完成，则关闭 worker
